@@ -1,0 +1,130 @@
+{
+  "name": "zekelin-dotnet-tools",
+  "displayName": "Zekelin .NET Tools",
+  "description": ".NET developer toolbox: publish, wipe bin/obj, scoped git push/discard, NuGet cache, and more.",
+  "version": "0.0.1",
+  "publisher": "alex",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dotnet-cleanup",
+          "title": "Zekelin .NET Tools",
+          "icon": "resources/zekelin-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "dotnet-cleanup": [
+        {
+          "id": "dotnetCleanupActions",
+          "name": "Actions"
+        },
+        {
+          "id": "zekelinDevkitBuildActions",
+          "name": "tools-devkit-build",
+          "when": "zekelin.isDevkitBuild"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "dotnet-cleanup.clearNugetCache",
+        "title": "Clear NuGet Cache"
+      },
+      {
+        "command": "dotnet-cleanup.killDotnetProcesses",
+        "title": "Kill .NET Processes"
+      },
+      {
+        "command": "dotnet-cleanup.killVBCSCompiler",
+        "title": "Kill VBCSCompiler"
+      },
+      {
+        "command": "dotnet-cleanup.dotnetWipe",
+        "title": ".NET Wipe"
+      },
+      {
+        "command": "dotnet-cleanup.dotnetPublish",
+        "title": "Publish"
+      },
+      {
+        "command": "dotnet-cleanup.generateSnippetPrefixes",
+        "title": "Generate Snippet Prefixes"
+      },
+      {
+        "command": "dotnet-cleanup.gitPush",
+        "title": "Push"
+      },
+      {
+        "command": "dotnet-cleanup.gitDiscard",
+        "title": "Discard"
+      },
+      {
+        "command": "dotnet-cleanup.installTargetNugets",
+        "title": "Install targets Nugets"
+      },
+      {
+        "command": "dotnet-cleanup.generateInstallScript",
+        "title": "Generate Install Script"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "dotnet-cleanup.dotnetPublish",
+          "when": "resourcePath in dotnetCleanup.publishTargets",
+          "group": "dotnet-cleanup@0"
+        },
+        {
+          "command": "dotnet-cleanup.dotnetWipe",
+          "when": "resourcePath in dotnetCleanup.wipeTargets",
+          "group": "dotnet-cleanup@1"
+        },
+        {
+          "command": "dotnet-cleanup.generateSnippetPrefixes",
+          "when": "explorerResourceIsFolder && resourceFilename == .vscode",
+          "group": "dotnet-cleanup@2"
+        },
+        {
+          "command": "dotnet-cleanup.gitPush",
+          "when": "resourceScheme == file && resourcePath in dotnetGit.changedPaths",
+          "group": "dotnet-git@0"
+        },
+        {
+          "command": "dotnet-cleanup.gitDiscard",
+          "when": "resourceScheme == file && resourcePath in dotnetGit.changedPaths",
+          "group": "dotnet-git@1"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "@types/sinon": "^17.0.0",
+    "@types/vscode": "^1.74.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.0",
+    "mocha": "^10.0.0",
+    "sinon": "^17.0.0",
+    "typescript": "^5.0.0"
+  }
+}
