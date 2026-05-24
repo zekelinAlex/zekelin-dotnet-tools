@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { CleanupActionsProvider, DevkitBuildActionsProvider } from './treeViewProvider';
-import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, DEVKIT_FOLDER_NAME } from './commands';
+import { CleanupActionsProvider, DevkitBuildActionsProvider, DataverseActionsProvider } from './treeViewProvider';
+import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, dataverseSolutionUnpack, dataverseSolutionImport, dataversePackageDeploy, addDataverseEnvironment, createDataverseEnvironment, deleteDataverseEnvironment, openInNewWindow, DEVKIT_FOLDER_NAME } from './commands';
 
 export function activate(context: vscode.ExtensionContext) {
   const outputChannel = vscode.window.createOutputChannel('Zekelin .NET Tools');
@@ -11,6 +11,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   const devkitProvider = new DevkitBuildActionsProvider();
   vscode.window.registerTreeDataProvider('zekelinDevkitBuildActions', devkitProvider);
+
+  const dataverseProvider = new DataverseActionsProvider();
+  vscode.window.registerTreeDataProvider('zekelinDataverseActions', dataverseProvider);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('dotnet-cleanup.clearNugetCache', () => {
@@ -69,6 +72,48 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('dotnet-cleanup.generateInstallScript', () => {
       return generateInstallScript(context, outputChannel);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.dataverseSolutionUnpack', (uri: vscode.Uri) => {
+      return dataverseSolutionUnpack(uri, outputChannel);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.dataverseSolutionImport', (uri: vscode.Uri) => {
+      return dataverseSolutionImport(uri, outputChannel);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.dataversePackageDeploy', (uri: vscode.Uri) => {
+      return dataversePackageDeploy(uri, outputChannel);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.addDataverseEnvironment', () => {
+      return addDataverseEnvironment(outputChannel);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.createDataverseEnvironment', () => {
+      return createDataverseEnvironment(outputChannel);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.deleteDataverseEnvironment', () => {
+      return deleteDataverseEnvironment(outputChannel);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.openInNewWindow', (uri: vscode.Uri) => {
+      return openInNewWindow(uri);
     })
   );
 

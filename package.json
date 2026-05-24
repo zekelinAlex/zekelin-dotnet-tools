@@ -34,6 +34,10 @@
           "id": "zekelinDevkitBuildActions",
           "name": "tools-devkit-build",
           "when": "zekelin.isDevkitBuild"
+        },
+        {
+          "id": "zekelinDataverseActions",
+          "name": "Dataverse"
         }
       ]
     },
@@ -77,6 +81,38 @@
       {
         "command": "dotnet-cleanup.generateInstallScript",
         "title": "Generate Install Script"
+      },
+      {
+        "command": "dotnet-cleanup.dataverseSolutionUnpack",
+        "title": "Dataverse Solutions unpack"
+      },
+      {
+        "command": "dotnet-cleanup.dataverseSolutionImport",
+        "title": "Dataverse Solutions Import"
+      },
+      {
+        "command": "dotnet-cleanup.dataversePackageDeploy",
+        "title": "Dataverse Package deploy"
+      },
+      {
+        "command": "dotnet-cleanup.addDataverseEnvironment",
+        "title": "Add Dataverse environment",
+        "icon": "$(add)"
+      },
+      {
+        "command": "dotnet-cleanup.createDataverseEnvironment",
+        "title": "Create Dataverse environment",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "dotnet-cleanup.deleteDataverseEnvironment",
+        "title": "Delete Dataverse environment",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "dotnet-cleanup.openInNewWindow",
+        "title": "Open in New Window",
+        "icon": "$(empty-window)"
       }
     ],
     "menus": {
@@ -105,6 +141,26 @@
           "command": "dotnet-cleanup.gitDiscard",
           "when": "resourceScheme == file && resourcePath in dotnetGit.changedPaths",
           "group": "dotnet-git@1"
+        },
+        {
+          "command": "dotnet-cleanup.dataverseSolutionUnpack",
+          "when": "resourceScheme == file && resourceExtname == .zip",
+          "group": "dotnet-dataverse@0"
+        },
+        {
+          "command": "dotnet-cleanup.dataverseSolutionImport",
+          "when": "resourceScheme == file && resourceExtname == .zip",
+          "group": "dotnet-dataverse@1"
+        },
+        {
+          "command": "dotnet-cleanup.dataversePackageDeploy",
+          "when": "resourceScheme == file && resourceExtname == .zip",
+          "group": "dotnet-dataverse@2"
+        },
+        {
+          "command": "dotnet-cleanup.openInNewWindow",
+          "when": "resourceScheme == file",
+          "group": "z_zekelin_openInNewWindow@0"
         }
       ]
     }

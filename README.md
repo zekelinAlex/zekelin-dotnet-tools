@@ -1,6 +1,6 @@
 # Zekelin .NET Tools
 
-A VS Code extension bundling a handful of .NET developer utilities: publish, wipe `bin/obj`, scoped git push/discard, NuGet-cache cleanup, a `tools-devkit-build`-specific local-feed packager, and a few other things. Every command streams its progress into a dedicated `Zekelin .NET Tools` output channel and, for long-running ones, shows a cancellable progress notification.
+A VS Code extension bundling a handful of .NET / Dataverse developer utilities: publish, wipe `bin/obj`, scoped git push/discard, NuGet-cache cleanup, a `tools-devkit-build`-specific local-feed packager, Dataverse solution unpack/import + package deploy + environment management, and a few other things. Every command streams its progress into a dedicated `Zekelin .NET Tools` output channel and, for long-running ones, shows a progress notification.
 
 ## Where each feature shows up
 
@@ -48,6 +48,30 @@ All five stages run inside a single cancellable progress notification.
 
 After generation, the script can be invoked from any PowerShell terminal with `./dev-scripts/Install-TargetNugets.ps1` — it doesn't require the VS Code extension to be installed on the machine that runs it.
 
+### Activity Bar view — `Dataverse` section
+
+Always visible. Manages a list of Dataverse environments stored in `<workspace>/.vscode/zekelin-dotnet-tools.json` under the `environments` key. The buttons sit at the top; saved environments are listed below them as read-only items showing the friendly name (label) and URL (description), with a tooltip exposing `name` / `id` / `url`.
+
+| Button | What it does |
+| --- | --- |
+| **Add environment** | Prompts for `name` → `id` (GUID, optional) → `url`, then appends a `{name, id, url}` entry to the cache. |
+| **Create environment** | Prompts only for `name`, then runs `pac admin create --name "<name>" --currency EUR --region europe --type Developer`. On success, parses the `Environment Url` / `Environment ID` / `Friendly Name` columns from pac's output (fixed-width table parsing using header column positions) and saves them to the cache automatically. |
+| **Delete environment** | Shows a QuickPick of saved environments, asks for modal confirmation, then runs `pac admin delete --environment "<id-or-url>" --async`. On success the entry is removed from the cache. If pac reports the environment as not found (`not found` / `does not exist` / `EnvironmentNotFound` / `no environment` in the output), the entry is also removed — it's already gone server-side. Any other failure leaves the cache untouched so you can retry. |
+
+The cache file is shared with `Install targets Nugets` (`packLocalVersion` lives there too); both features merge into the same JSON without clobbering each other's keys. Example:
+
+```json
+{
+  "packLocalVersion": "0.0.0.14",
+  "environments": [
+    { "name": "Dev",  "id": "f3f1e28a-14ed-...", "url": "https://orgxxxxxxxx.crm4.dynamics.com/" },
+    { "name": "Prod", "id": "",                  "url": "https://yourorg.crm.dynamics.com/" }
+  ]
+}
+```
+
+The cache root is the `tools-devkit-build` workspace folder if that's open; otherwise the first workspace folder.
+
 ### Explorer right-click menu — conditional entries
 
 Right-click any file or folder in the Explorer; the relevant entries only appear when their conditions match so the menu stays uncluttered.
@@ -59,8 +83,11 @@ Right-click any file or folder in the Explorer; the relevant entries only appear
 | **Push** | any file or folder with uncommitted changes (tracked via the built-in Git extension) | Prompts for a commit message, then `git add <path>` + `git commit -m <msg> -- <path>` (pathspec commit, so other staged changes outside the path are left alone) + `git push origin <current-branch>`. |
 | **Discard** | any file or folder with uncommitted changes | Asks for modal confirmation, then `git restore --source=HEAD --staged --worktree -- <path>` (reverts tracked changes) and `git clean -fd -- <path>` (removes untracked files). |
 | **Generate Snippet Prefixes** | a `.vscode` folder | Parses every `*.code-snippets` file inside (tolerating JSON comments and trailing commas), extracts each snippet's `prefix`, and writes them line-by-line to `snippet-prefixes/<name>.ps1` at the workspace root. |
+| **Dataverse Solutions unpack** | a `.zip` file | Runs `pac solution unpack --zipfile "<zip>" --localize --folder "<zip-without-ext>"` (creates a folder next to the zip with the same base name). On non-zero exit it retries automatically with `--packagetype managed`. |
+| **Dataverse Solutions Import** | a `.zip` file | Shows the saved-environments QuickPick (with an inline `+ Add new environment...` option), then runs `pac solution import --path "<zip>" --environment "<url-or-id>"`. The `--environment` argument uses the env's `url` if set, otherwise `id`, otherwise `name`. |
+| **Dataverse Package deploy** | a `.zip` file | Same environment picker as above, then runs `pac package deploy --package "<zip>" --environment "<url-or-id>"`. |
 
-> How the "appears only when relevant" logic works: on startup the extension indexes the workspace for `.csproj`/`.sln`/`.slnx` files (and refreshes on create/delete via a file-system watcher), and subscribes to the built-in Git extension's repository state. It maintains three VS Code context keys — `dotnetCleanup.publishTargets`, `dotnetCleanup.wipeTargets`, and `dotnetGit.changedPaths` — each a map of the exact paths that qualify. The menu `when` clauses use `resourcePath in <key>`, so VS Code only shows the entry when the right-clicked path is a match.
+> How the "appears only when relevant" logic works: on startup the extension indexes the workspace for `.csproj`/`.sln`/`.slnx` files (and refreshes on create/delete via a file-system watcher), and subscribes to the built-in Git extension's repository state. It maintains three VS Code context keys — `dotnetCleanup.publishTargets`, `dotnetCleanup.wipeTargets`, and `dotnetGit.changedPaths` — each a map of the exact paths that qualify. The menu `when` clauses use `resourcePath in <key>`, so VS Code only shows the entry when the right-clicked path is a match. The Dataverse entries use a simpler `resourceExtname == .zip` check.
 
 ## Command palette
 
@@ -78,12 +105,19 @@ Every action is also directly invocable via `Ctrl+Shift+P`:
 | `dotnet-cleanup.installTargetNugets` | Install targets Nugets |
 | `dotnet-cleanup.generateInstallScript` | Generate Install Script |
 | `dotnet-cleanup.generateSnippetPrefixes` | Generate Snippet Prefixes |
+| `dotnet-cleanup.dataverseSolutionUnpack` | Dataverse Solutions unpack |
+| `dotnet-cleanup.dataverseSolutionImport` | Dataverse Solutions Import |
+| `dotnet-cleanup.dataversePackageDeploy` | Dataverse Package deploy |
+| `dotnet-cleanup.addDataverseEnvironment` | Add Dataverse environment |
+| `dotnet-cleanup.createDataverseEnvironment` | Create Dataverse environment |
+| `dotnet-cleanup.deleteDataverseEnvironment` | Delete Dataverse environment |
 
 ## Requirements
 
 - Windows (uses `taskkill` and PowerShell with `RunAs`).
 - `dotnet` CLI available on `PATH`.
 - `git` CLI available on `PATH` (for Push / Discard).
+- `pac` CLI (Power Platform CLI) on `PATH` for the Dataverse features.
 - VS Code `^1.74.0`.
 
 ## Build & install
