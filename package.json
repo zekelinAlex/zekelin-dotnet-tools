@@ -108,6 +108,11 @@
         "command": "dotnet-cleanup.deleteDataverseEnvironment",
         "title": "Delete Dataverse environment",
         "icon": "$(trash)"
+      },
+      {
+        "command": "dotnet-cleanup.openInNewWindow",
+        "title": "Open in New Window",
+        "icon": "$(empty-window)"
       }
     ],
     "menus": {
@@ -151,6 +156,11 @@
           "command": "dotnet-cleanup.dataversePackageDeploy",
           "when": "resourceScheme == file && resourceExtname == .zip",
           "group": "dotnet-dataverse@2"
+        },
+        {
+          "command": "dotnet-cleanup.openInNewWindow",
+          "when": "resourceScheme == file",
+          "group": "z_zekelin_openInNewWindow@0"
         }
       ]
     }

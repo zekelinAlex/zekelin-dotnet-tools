@@ -6,6 +6,21 @@ import { exec as defaultExec, execFile as defaultExecFile, spawn as defaultSpawn
 type ExecFn = (cmd: string, callback: (error: Error | null, stdout: string, stderr: string) => void) => void;
 type SpawnFn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
 
+// Quote an argument for cmd.exe when spawning with `shell: true` on Windows.
+// Node does NOT auto-quote args when shell:true is set with an array form,
+// so anything containing whitespace or cmd.exe metacharacters (parentheses,
+// ampersands, pipes, redirects, carets, quotes) must be wrapped in double
+// quotes manually, with embedded `"` doubled up. Without this, a path like
+//   d:\folder\name (1).zip
+// gets tokenised by cmd.exe as two tokens (`d:\folder\name` and `(1).zip`)
+// and the receiving CLI sees a bogus second positional argument.
+function quoteShellArg(a: string): string {
+  if (/[\s()&|<>^"]/.test(a)) {
+    return `"${a.replace(/"/g, '""')}"`;
+  }
+  return a;
+}
+
 type GitResult = { stdout: string; stderr: string; error: Error | null };
 type GitRunner = (args: string[], cwd: string) => Promise<GitResult>;
 
@@ -716,7 +731,8 @@ async function runPacCapture(
   title: string,
   spawnFn: SpawnFn
 ): Promise<{ ok: boolean; code: number | null; stdout: string; stderr: string }> {
-  const printable = `pac ${args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ')}`;
+  const quoted = args.map(quoteShellArg);
+  const printable = `pac ${quoted.join(' ')}`;
   return await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
@@ -726,7 +742,7 @@ async function runPacCapture(
     () =>
       new Promise<{ ok: boolean; code: number | null; stdout: string; stderr: string }>((resolve) => {
         outputChannel.appendLine(`Running: ${printable}`);
-        const child = spawnFn('pac', args, { shell: true });
+        const child = spawnFn('pac', quoted, { shell: true });
         let stdout = '';
         let stderr = '';
         const streamOut = (chunk: Buffer | string) => {
@@ -1379,10 +1395,11 @@ export async function dataverseSolutionUnpack(
       if (packageType) {
         args.push('--packagetype', packageType);
       }
-      const printable = `pac ${args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ')}`;
+      const quoted = args.map(quoteShellArg);
+      const printable = `pac ${quoted.join(' ')}`;
       outputChannel.appendLine(`Running: ${printable}`);
 
-      const child = spawnFn('pac', args, { shell: true });
+      const child = spawnFn('pac', quoted, { shell: true });
 
       const stream = (chunk: Buffer | string) => {
         const text = chunk.toString();
@@ -1430,4 +1447,18 @@ export async function dataverseSolutionUnpack(
       }
     }
   );
+}
+
+export async function openInNewWindow(resourceUri: vscode.Uri): Promise<void> {
+  if (!resourceUri) {
+    vscode.window.showWarningMessage('Open in New Window: no file or folder selected.');
+    return;
+  }
+  // vscode.openFolder handles both files and folders. For files it opens
+  // a new VS Code window with the file's parent as workspace and the file
+  // focused; for folders it opens the folder as workspace root.
+  await vscode.commands.executeCommand('vscode.openFolder', resourceUri, {
+    forceNewWindow: true,
+    noRecentEntry: false
+  });
 }
