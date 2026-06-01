@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { CleanupActionsProvider, DevkitBuildActionsProvider, DataverseActionsProvider } from './treeViewProvider';
-import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, dataverseSolutionUnpack, dataverseSolutionImport, dataversePackageDeploy, addDataverseEnvironment, createDataverseEnvironment, deleteDataverseEnvironment, openInNewWindow, DEVKIT_FOLDER_NAME } from './commands';
+import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, dataverseSolutionUnpack, dataverseSolutionImport, dataversePackageDeploy, addDataverseEnvironment, createDataverseEnvironment, deleteDataverseEnvironment, revealDataverseEnvironmentsConfig, migrateEnvironmentsToGlobalIfNeeded, openInNewWindow, DEVKIT_FOLDER_NAME } from './commands';
 
 export function activate(context: vscode.ExtensionContext) {
   const outputChannel = vscode.window.createOutputChannel('Zekelin .NET Tools');
@@ -116,6 +116,17 @@ export function activate(context: vscode.ExtensionContext) {
       return openInNewWindow(uri);
     })
   );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.revealDataverseEnvironmentsConfig', () => {
+      return revealDataverseEnvironmentsConfig(outputChannel);
+    })
+  );
+
+  // Run migration once at activation so users see the info message even
+  // before they open the Dataverse section. Safe to call repeatedly — it
+  // short-circuits after the first invocation.
+  migrateEnvironmentsToGlobalIfNeeded(outputChannel);
 
   setupDevkitBuildContext(context);
   setupGitChangedPathsContext(context);

@@ -113,6 +113,11 @@
         "command": "dotnet-cleanup.openInNewWindow",
         "title": "Open in New Window",
         "icon": "$(empty-window)"
+      },
+      {
+        "command": "dotnet-cleanup.revealDataverseEnvironmentsConfig",
+        "title": "Reveal Dataverse environments config",
+        "icon": "$(go-to-file)"
       }
     ],
     "menus": {

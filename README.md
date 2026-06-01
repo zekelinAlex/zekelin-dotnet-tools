@@ -50,19 +50,15 @@ After generation, the script can be invoked from any PowerShell terminal with `.
 
 ### Activity Bar view — `Dataverse` section
 
-Always visible. Manages a list of Dataverse environments stored in `<workspace>/.vscode/zekelin-dotnet-tools.json` under the `environments` key. The buttons sit at the top; saved environments are listed below them as read-only items showing the friendly name (label) and URL (description), with a tooltip exposing `name` / `id` / `url`.
+Always visible. Manages a list of Dataverse environments stored in a **global** config file under the user's home directory, so the same environment list shows up in every workspace and every VS Code variant (stable / Insiders / Cursor) on the machine:
 
-| Button | What it does |
-| --- | --- |
-| **Add environment** | Prompts for `name` → `id` (GUID, optional) → `url`, then appends a `{name, id, url}` entry to the cache. |
-| **Create environment** | Prompts only for `name`, then runs `pac admin create --name "<name>" --currency EUR --region europe --type Developer`. On success, parses the `Environment Url` / `Environment ID` / `Friendly Name` columns from pac's output (fixed-width table parsing using header column positions) and saves them to the cache automatically. |
-| **Delete environment** | Shows a QuickPick of saved environments, asks for modal confirmation, then runs `pac admin delete --environment "<id-or-url>" --async`. On success the entry is removed from the cache. If pac reports the environment as not found (`not found` / `does not exist` / `EnvironmentNotFound` / `no environment` in the output), the entry is also removed — it's already gone server-side. Any other failure leaves the cache untouched so you can retry. |
+- Windows: `%USERPROFILE%\.zekelin-dotnet-tools\zekelin-dotnet-tools.json`
+- macOS / Linux: `~/.zekelin-dotnet-tools/zekelin-dotnet-tools.json`
 
-The cache file is shared with `Install targets Nugets` (`packLocalVersion` lives there too); both features merge into the same JSON without clobbering each other's keys. Example:
+Schema:
 
 ```json
 {
-  "packLocalVersion": "0.0.0.14",
   "environments": [
     { "name": "Dev",  "id": "f3f1e28a-14ed-...", "url": "https://orgxxxxxxxx.crm4.dynamics.com/" },
     { "name": "Prod", "id": "",                  "url": "https://yourorg.crm.dynamics.com/" }
@@ -70,7 +66,16 @@ The cache file is shared with `Install targets Nugets` (`packLocalVersion` lives
 }
 ```
 
-The cache root is the `tools-devkit-build` workspace folder if that's open; otherwise the first workspace folder.
+The buttons sit at the top; saved environments are listed below them as read-only items showing the friendly name (label) and URL (description), with a tooltip exposing `name` / `id` / `url`.
+
+| Button | What it does |
+| --- | --- |
+| **Add environment** | Prompts for `name` → `id` (GUID, optional) → `url`, then appends a `{name, id, url}` entry to the global config. |
+| **Create environment** | Prompts only for `name`, then runs `pac admin create --name "<name>" --currency EUR --region europe --type Developer`. On success, parses the `Environment Url` / `Environment ID` / `Friendly Name` columns from pac's output (fixed-width table parsing using header column positions) and saves them to the global config automatically. |
+| **Delete environment** | Shows a QuickPick of saved environments, asks for modal confirmation, then runs `pac admin delete --environment "<id-or-url>" --async`. On success the entry is removed from the global config. If pac reports the environment as not found (`not found` / `does not exist` / `EnvironmentNotFound` / `no environment` in the output), the entry is also removed — it's already gone server-side. Any other failure leaves the config untouched so you can retry. |
+| **Reveal config** | Opens the global config file in the editor (creates an empty one if it doesn't exist yet) so you can edit/reorder/comment-clean entries by hand. |
+
+**Migration.** Earlier versions stored environments in `<workspace>/.vscode/zekelin-dotnet-tools.json` per project. On first activation after upgrade, the extension reads that file from the currently-open workspace and moves any `environments` entries up to the global config (then strips them from the workspace file). A one-time info notification tells you when this happened. `packLocalVersion` stays project-local in `<workspace>/.vscode/zekelin-dotnet-tools.json` — it really is per-repo state.
 
 ### Explorer right-click menu — conditional entries
 
@@ -111,6 +116,7 @@ Every action is also directly invocable via `Ctrl+Shift+P`:
 | `dotnet-cleanup.addDataverseEnvironment` | Add Dataverse environment |
 | `dotnet-cleanup.createDataverseEnvironment` | Create Dataverse environment |
 | `dotnet-cleanup.deleteDataverseEnvironment` | Delete Dataverse environment |
+| `dotnet-cleanup.revealDataverseEnvironmentsConfig` | Reveal Dataverse environments config |
 
 ## Requirements
 

@@ -81,6 +81,13 @@ export class DataverseActionsProvider implements vscode.TreeDataProvider<vscode.
     deleteBtn.contextValue = 'dataverseDeleteEnvironment';
     items.push(deleteBtn);
 
+    const revealBtn = new vscode.TreeItem('Reveal config', vscode.TreeItemCollapsibleState.None);
+    revealBtn.command = { command: 'dotnet-cleanup.revealDataverseEnvironmentsConfig', title: 'Reveal config' };
+    revealBtn.iconPath = new vscode.ThemeIcon('go-to-file');
+    revealBtn.tooltip = 'Open ~/.zekelin-dotnet-tools/zekelin-dotnet-tools.json (global, shared across workspaces)';
+    revealBtn.contextValue = 'dataverseRevealConfig';
+    items.push(revealBtn);
+
     for (const env of getDataverseEnvironments()) {
       const label = env.name || '(unnamed)';
       const it = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
