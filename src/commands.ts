@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { exec as defaultExec, execFile as defaultExecFile, spawn as defaultSpawn, SpawnOptions, ChildProcess } from 'child_process';
 
@@ -603,7 +604,35 @@ export type DataverseEnvironment = { name: string; id: string; url: string };
 
 export const dataverseEnvironmentsChanged = new vscode.EventEmitter<void>();
 
-function getCacheRoot(): string | undefined {
+// Global config — shared across all workspaces, all VS Code variants on this
+// machine. Lives under the user's home dir so it shows up next to .gitconfig,
+// .aws, etc. instead of being buried under AppData\Roaming\Code\....
+const GLOBAL_CONFIG_DIR = path.join(os.homedir(), '.zekelin-dotnet-tools');
+const GLOBAL_CONFIG_FILE = path.join(GLOBAL_CONFIG_DIR, DEVKIT_CONFIG_FILE);
+
+export function getGlobalConfigPath(): string {
+  return GLOBAL_CONFIG_FILE;
+}
+
+function readGlobalConfig(): { [key: string]: any } {
+  if (!fs.existsSync(GLOBAL_CONFIG_FILE)) { return {}; }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_FILE, 'utf8'));
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeGlobalConfig(cfg: { [key: string]: any }): void {
+  if (!fs.existsSync(GLOBAL_CONFIG_DIR)) { fs.mkdirSync(GLOBAL_CONFIG_DIR, { recursive: true }); }
+  fs.writeFileSync(GLOBAL_CONFIG_FILE, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
+}
+
+// packLocalVersion stays project-local — it really is per-repo state.
+// These two helpers still operate on <workspace>/.vscode/zekelin-dotnet-tools.json
+// but only for that one key (and migration cleanup).
+function getWorkspaceCacheRoot(): string | undefined {
   const devkit = getDevkitBuildRoot();
   if (devkit) { return devkit; }
   const folders = vscode.workspace.workspaceFolders;
@@ -611,7 +640,7 @@ function getCacheRoot(): string | undefined {
   return undefined;
 }
 
-function readCacheConfig(root: string): { [key: string]: any } {
+function readWorkspaceCacheConfig(root: string): { [key: string]: any } {
   const configPath = path.join(root, '.vscode', DEVKIT_CONFIG_FILE);
   if (!fs.existsSync(configPath)) { return {}; }
   try {
@@ -622,17 +651,56 @@ function readCacheConfig(root: string): { [key: string]: any } {
   }
 }
 
-function writeCacheConfig(root: string, cfg: { [key: string]: any }): void {
+function writeWorkspaceCacheConfig(root: string, cfg: { [key: string]: any }): void {
   const configDir = path.join(root, '.vscode');
   const configPath = path.join(configDir, DEVKIT_CONFIG_FILE);
   if (!fs.existsSync(configDir)) { fs.mkdirSync(configDir, { recursive: true }); }
   fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
 }
 
+// Back-compat shims for callers that still operate on the workspace cache
+// (currently only the packLocalVersion path).
+function readCacheConfig(root: string): { [key: string]: any } {
+  return readWorkspaceCacheConfig(root);
+}
+function writeCacheConfig(root: string, cfg: { [key: string]: any }): void {
+  writeWorkspaceCacheConfig(root, cfg);
+}
+
+// Best-effort one-time migration: if the global config has no environments
+// but the currently-open workspace's cache does, move them up and clear the
+// workspace copy. Runs idempotently — subsequent calls see the global file
+// already populated and do nothing.
+let migrationAttempted = false;
+export function migrateEnvironmentsToGlobalIfNeeded(outputChannel?: vscode.OutputChannel): void {
+  if (migrationAttempted) { return; }
+  migrationAttempted = true;
+
+  const global = readGlobalConfig();
+  if (Array.isArray(global.environments) && global.environments.length > 0) { return; }
+
+  const wsRoot = getWorkspaceCacheRoot();
+  if (!wsRoot) { return; }
+  const wsCfg = readWorkspaceCacheConfig(wsRoot);
+  const wsEnvs = wsCfg.environments;
+  if (!Array.isArray(wsEnvs) || wsEnvs.length === 0) { return; }
+
+  global.environments = wsEnvs;
+  writeGlobalConfig(global);
+
+  delete wsCfg.environments;
+  writeWorkspaceCacheConfig(wsRoot, wsCfg);
+
+  const msg = `Migrated ${wsEnvs.length} Dataverse environment(s) from ${path.join(wsRoot, '.vscode', DEVKIT_CONFIG_FILE)} → ${GLOBAL_CONFIG_FILE}.`;
+  if (outputChannel) { outputChannel.appendLine(msg); }
+  vscode.window.showInformationMessage(
+    `Dataverse environments now live in ${GLOBAL_CONFIG_FILE}. Migrated ${wsEnvs.length} from the current workspace.`
+  );
+}
+
 export function getDataverseEnvironments(): DataverseEnvironment[] {
-  const root = getCacheRoot();
-  if (!root) { return []; }
-  const cfg = readCacheConfig(root);
+  migrateEnvironmentsToGlobalIfNeeded();
+  const cfg = readGlobalConfig();
   const raw = cfg.environments;
   if (!Array.isArray(raw)) { return []; }
   return raw
@@ -647,11 +715,7 @@ export function getDataverseEnvironments(): DataverseEnvironment[] {
 export async function addDataverseEnvironment(
   outputChannel: vscode.OutputChannel
 ): Promise<DataverseEnvironment | undefined> {
-  const root = getCacheRoot();
-  if (!root) {
-    vscode.window.showErrorMessage('Open a workspace folder before adding a Dataverse environment.');
-    return undefined;
-  }
+  migrateEnvironmentsToGlobalIfNeeded(outputChannel);
 
   const name = await vscode.window.showInputBox({
     prompt: 'Environment name',
@@ -678,17 +742,28 @@ export async function addDataverseEnvironment(
     return undefined;
   }
 
-  const cfg = readCacheConfig(root);
+  const cfg = readGlobalConfig();
   const list: DataverseEnvironment[] = Array.isArray(cfg.environments) ? cfg.environments : [];
   list.push(env);
   cfg.environments = list;
-  writeCacheConfig(root, cfg);
+  writeGlobalConfig(cfg);
 
-  const configPath = path.join(root, '.vscode', DEVKIT_CONFIG_FILE);
-  outputChannel.appendLine(`Added environment "${env.name}" to ${configPath}`);
+  outputChannel.appendLine(`Added environment "${env.name}" to ${GLOBAL_CONFIG_FILE}`);
   vscode.window.showInformationMessage(`Added Dataverse environment "${env.name}".`);
   dataverseEnvironmentsChanged.fire();
   return env;
+}
+
+export async function revealDataverseEnvironmentsConfig(outputChannel: vscode.OutputChannel): Promise<void> {
+  migrateEnvironmentsToGlobalIfNeeded(outputChannel);
+
+  if (!fs.existsSync(GLOBAL_CONFIG_FILE)) {
+    if (!fs.existsSync(GLOBAL_CONFIG_DIR)) { fs.mkdirSync(GLOBAL_CONFIG_DIR, { recursive: true }); }
+    fs.writeFileSync(GLOBAL_CONFIG_FILE, JSON.stringify({ environments: [] }, null, 2) + '\n', 'utf8');
+  }
+
+  const doc = await vscode.workspace.openTextDocument(GLOBAL_CONFIG_FILE);
+  await vscode.window.showTextDocument(doc, { preview: false });
 }
 
 async function pickDataverseEnvironment(
@@ -830,11 +905,7 @@ export async function createDataverseEnvironment(
   outputChannel: vscode.OutputChannel,
   spawnFn: SpawnFn = defaultSpawn as any
 ): Promise<DataverseEnvironment | undefined> {
-  const root = getCacheRoot();
-  if (!root) {
-    vscode.window.showErrorMessage('Open a workspace folder before creating a Dataverse environment.');
-    return undefined;
-  }
+  migrateEnvironmentsToGlobalIfNeeded(outputChannel);
 
   const name = await vscode.window.showInputBox({
     prompt: 'Environment name',
@@ -873,27 +944,26 @@ export async function createDataverseEnvironment(
     url: parsed.url
   };
 
-  const cfg = readCacheConfig(root);
+  const cfg = readGlobalConfig();
   const list: DataverseEnvironment[] = Array.isArray(cfg.environments) ? cfg.environments : [];
   list.push(env);
   cfg.environments = list;
-  writeCacheConfig(root, cfg);
+  writeGlobalConfig(cfg);
 
-  const configPath = path.join(root, '.vscode', DEVKIT_CONFIG_FILE);
-  outputChannel.appendLine(`Created environment "${env.name}" (id=${env.id}, url=${env.url}) and saved to ${configPath}`);
+  outputChannel.appendLine(`Created environment "${env.name}" (id=${env.id}, url=${env.url}) and saved to ${GLOBAL_CONFIG_FILE}`);
   vscode.window.showInformationMessage(`Created Dataverse environment "${env.name}".`);
   dataverseEnvironmentsChanged.fire();
   return env;
 }
 
-function removeEnvironmentFromCache(root: string, target: DataverseEnvironment): boolean {
-  const cfg = readCacheConfig(root);
+function removeEnvironmentFromGlobal(target: DataverseEnvironment): boolean {
+  const cfg = readGlobalConfig();
   const list: DataverseEnvironment[] = Array.isArray(cfg.environments) ? cfg.environments : [];
   const before = list.length;
   const filtered = list.filter((e) => !(e.id === target.id && e.url === target.url && e.name === target.name));
   if (filtered.length === before) { return false; }
   cfg.environments = filtered;
-  writeCacheConfig(root, cfg);
+  writeGlobalConfig(cfg);
   return true;
 }
 
@@ -901,11 +971,7 @@ export async function deleteDataverseEnvironment(
   outputChannel: vscode.OutputChannel,
   spawnFn: SpawnFn = defaultSpawn as any
 ): Promise<void> {
-  const root = getCacheRoot();
-  if (!root) {
-    vscode.window.showErrorMessage('Open a workspace folder first.');
-    return;
-  }
+  migrateEnvironmentsToGlobalIfNeeded(outputChannel);
 
   const envs = getDataverseEnvironments();
   if (envs.length === 0) {
@@ -954,7 +1020,7 @@ export async function deleteDataverseEnvironment(
     combined.includes('no environment');
 
   if (res.ok) {
-    const removed = removeEnvironmentFromCache(root, env);
+    const removed = removeEnvironmentFromGlobal(env);
     outputChannel.appendLine(
       removed
         ? `Removed "${env.name || target}" from cache.`
@@ -969,7 +1035,7 @@ export async function deleteDataverseEnvironment(
     outputChannel.appendLine(
       `pac reported the environment as not found (exit ${res.code}). Cleaning it from cache.`
     );
-    const removed = removeEnvironmentFromCache(root, env);
+    const removed = removeEnvironmentFromGlobal(env);
     dataverseEnvironmentsChanged.fire();
     if (removed) {
       vscode.window.showInformationMessage(
