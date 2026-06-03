@@ -128,6 +128,11 @@ export function activate(context: vscode.ExtensionContext) {
   // short-circuits after the first invocation.
   migrateEnvironmentsToGlobalIfNeeded(outputChannel);
 
+  // One-time apply of preferred window.title so the folder name shows up
+  // in the OS taskbar instead of the active file. Only fires when the user
+  // hasn't set their own global value, so we never clobber a custom setting.
+  applyPreferredWindowTitle(outputChannel);
+
   setupDevkitBuildContext(context);
   setupGitChangedPathsContext(context);
   setupWipeTargetsContext(context);
@@ -267,6 +272,30 @@ function setupGitChangedPathsContext(context: vscode.ExtensionContext) {
   };
 
   init();
+}
+
+const PREFERRED_WINDOW_TITLE = '${dirty}${rootName}${separator}${appName}';
+
+async function applyPreferredWindowTitle(outputChannel: vscode.OutputChannel): Promise<void> {
+  try {
+    const cfg = vscode.workspace.getConfiguration();
+    const inspect = cfg.inspect<string>('window.title');
+    // Inspect tells us where the value came from:
+    //   globalValue   — explicit user setting in settings.json (we don't touch)
+    //   workspaceValue / workspaceFolderValue — workspace overrides (we don't touch either)
+    //   defaultValue  — VS Code built-in fallback (we may replace at the user level)
+    if (inspect?.globalValue !== undefined) { return; }
+    if (inspect?.workspaceValue !== undefined) { return; }
+    if (inspect?.workspaceFolderValue !== undefined) { return; }
+
+    await cfg.update('window.title', PREFERRED_WINDOW_TITLE, vscode.ConfigurationTarget.Global);
+    outputChannel.appendLine(`Set window.title = "${PREFERRED_WINDOW_TITLE}" (global) so the workspace folder name shows in the taskbar.`);
+    vscode.window.showInformationMessage(
+      'Zekelin .NET Tools: window.title now shows the workspace folder name in the taskbar. Edit window.title in settings.json to revert.'
+    );
+  } catch (err) {
+    outputChannel.appendLine(`Failed to apply preferred window.title: ${(err as Error).message}`);
+  }
 }
 
 export function deactivate() {}

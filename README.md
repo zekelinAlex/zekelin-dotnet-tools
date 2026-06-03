@@ -118,6 +118,10 @@ Every action is also directly invocable via `Ctrl+Shift+P`:
 | `dotnet-cleanup.deleteDataverseEnvironment` | Delete Dataverse environment |
 | `dotnet-cleanup.revealDataverseEnvironmentsConfig` | Reveal Dataverse environments config |
 
+## One-time settings applied on first activation
+
+The extension sets `window.title` (user-global) to `${dirty}${rootName}${separator}${appName}` on its first activation, so the OS taskbar shows the workspace folder name instead of the active file. This only happens when `window.title` hasn't been set globally or per-workspace — any explicit user value is respected and left alone. To revert, edit `window.title` in your user settings.json.
+
 ## Requirements
 
 - Windows (uses `taskkill` and PowerShell with `RunAs`).
