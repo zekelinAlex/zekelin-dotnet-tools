@@ -130,7 +130,7 @@
         {
           "command": "dotnet-cleanup.sendToLocalNugetFeed",
           "when": "resourceScheme == file && resourceExtname == .nupkg",
-          "group": "navigation@0"
+          "group": "1_zekelin_nuget@0"
         },
         {
           "command": "dotnet-cleanup.dotnetPublish",
