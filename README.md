@@ -91,6 +91,7 @@ Right-click any file or folder in the Explorer; the relevant entries only appear
 | **Dataverse Solutions unpack** | a `.zip` file | Runs `pac solution unpack --zipfile "<zip>" --localize --folder "<zip-without-ext>"` (creates a folder next to the zip with the same base name). On non-zero exit it retries automatically with `--packagetype managed`. |
 | **Dataverse Solutions Import** | a `.zip` file | Shows the saved-environments QuickPick (with an inline `+ Add new environment...` option), then runs `pac solution import --path "<zip>" --environment "<url-or-id>"`. The `--environment` argument uses the env's `url` if set, otherwise `id`, otherwise `name`. |
 | **Dataverse Package deploy** | a `.zip` file | Same environment picker as above, then runs `pac package deploy --package "<zip>" --environment "<url-or-id>"`. |
+| **Send to Local NuGet Feed** *(top of menu)* | a `.nupkg` file | First time: asks for a local feed folder path, validates it exists, registers it as a NuGet source if not already (`dotnet nuget add source ...`), copies the package into it, and saves the path to the global config (`localNugetFeed` key). Subsequent times: copies straight to the saved folder, no prompt. If the saved folder gets deleted between runs, the prompt comes back. |
 
 > How the "appears only when relevant" logic works: on startup the extension indexes the workspace for `.csproj`/`.sln`/`.slnx` files (and refreshes on create/delete via a file-system watcher), and subscribes to the built-in Git extension's repository state. It maintains three VS Code context keys — `dotnetCleanup.publishTargets`, `dotnetCleanup.wipeTargets`, and `dotnetGit.changedPaths` — each a map of the exact paths that qualify. The menu `when` clauses use `resourcePath in <key>`, so VS Code only shows the entry when the right-clicked path is a match. The Dataverse entries use a simpler `resourceExtname == .zip` check.
 
@@ -117,6 +118,7 @@ Every action is also directly invocable via `Ctrl+Shift+P`:
 | `dotnet-cleanup.createDataverseEnvironment` | Create Dataverse environment |
 | `dotnet-cleanup.deleteDataverseEnvironment` | Delete Dataverse environment |
 | `dotnet-cleanup.revealDataverseEnvironmentsConfig` | Reveal Dataverse environments config |
+| `dotnet-cleanup.sendToLocalNugetFeed` | Send to Local NuGet Feed |
 
 ## One-time settings applied on first activation
 

@@ -118,10 +118,20 @@
         "command": "dotnet-cleanup.revealDataverseEnvironmentsConfig",
         "title": "Reveal Dataverse environments config",
         "icon": "$(go-to-file)"
+      },
+      {
+        "command": "dotnet-cleanup.sendToLocalNugetFeed",
+        "title": "Send to Local NuGet Feed",
+        "icon": "$(cloud-upload)"
       }
     ],
     "menus": {
       "explorer/context": [
+        {
+          "command": "dotnet-cleanup.sendToLocalNugetFeed",
+          "when": "resourceScheme == file && resourceExtname == .nupkg",
+          "group": "navigation@0"
+        },
         {
           "command": "dotnet-cleanup.dotnetPublish",
           "when": "resourcePath in dotnetCleanup.publishTargets",
