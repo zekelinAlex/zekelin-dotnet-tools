@@ -1675,3 +1675,29 @@ export async function sendToLocalNugetFeed(
 
   vscode.window.showInformationMessage(`Sent "${path.basename(pkgPath)}" to ${feedPath}.`);
 }
+
+// ─── Explorer sort toggle (alphabetical ↔ modified date) ──────────────────────
+// Both commands write to user-global explorer.sortOrder; the context key
+// zekelin.explorerSortByModified is what swaps which of the two title-bar
+// buttons is currently visible.
+
+export async function sortExplorerByModified(): Promise<void> {
+  await vscode.workspace.getConfiguration('explorer').update(
+    'sortOrder',
+    'modified',
+    vscode.ConfigurationTarget.Global
+  );
+}
+
+export async function sortExplorerByDefault(): Promise<void> {
+  await vscode.workspace.getConfiguration('explorer').update(
+    'sortOrder',
+    'default',
+    vscode.ConfigurationTarget.Global
+  );
+}
+
+export function updateExplorerSortContextKey(): void {
+  const cur = vscode.workspace.getConfiguration('explorer').get<string>('sortOrder');
+  vscode.commands.executeCommand('setContext', 'zekelin.explorerSortByModified', cur === 'modified');
+}

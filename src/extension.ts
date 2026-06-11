@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { CleanupActionsProvider, DevkitBuildActionsProvider, DataverseActionsProvider } from './treeViewProvider';
-import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, dataverseSolutionUnpack, dataverseSolutionImport, dataversePackageDeploy, addDataverseEnvironment, createDataverseEnvironment, deleteDataverseEnvironment, revealDataverseEnvironmentsConfig, migrateEnvironmentsToGlobalIfNeeded, openInNewWindow, sendToLocalNugetFeed, DEVKIT_FOLDER_NAME } from './commands';
+import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, dataverseSolutionUnpack, dataverseSolutionImport, dataversePackageDeploy, addDataverseEnvironment, createDataverseEnvironment, deleteDataverseEnvironment, revealDataverseEnvironmentsConfig, migrateEnvironmentsToGlobalIfNeeded, openInNewWindow, sendToLocalNugetFeed, sortExplorerByModified, sortExplorerByDefault, updateExplorerSortContextKey, DEVKIT_FOLDER_NAME } from './commands';
 
 export function activate(context: vscode.ExtensionContext) {
   const outputChannel = vscode.window.createOutputChannel('Zekelin .NET Tools');
@@ -126,6 +126,24 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('dotnet-cleanup.sendToLocalNugetFeed', (uri: vscode.Uri) => {
       return sendToLocalNugetFeed(uri, outputChannel);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.sortExplorerByModified', () => sortExplorerByModified())
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.sortExplorerByDefault', () => sortExplorerByDefault())
+  );
+
+  // Seed the context key right now, and keep it in sync if the user (or
+  // another extension, or settings sync) changes explorer.sortOrder later.
+  updateExplorerSortContextKey();
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('explorer.sortOrder')) {
+        updateExplorerSortContextKey();
+      }
     })
   );
 

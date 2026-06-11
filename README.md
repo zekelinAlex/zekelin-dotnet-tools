@@ -119,6 +119,12 @@ Every action is also directly invocable via `Ctrl+Shift+P`:
 | `dotnet-cleanup.deleteDataverseEnvironment` | Delete Dataverse environment |
 | `dotnet-cleanup.revealDataverseEnvironmentsConfig` | Reveal Dataverse environments config |
 | `dotnet-cleanup.sendToLocalNugetFeed` | Send to Local NuGet Feed |
+| `dotnet-cleanup.sortExplorerByModified` | Sort Explorer by modified date |
+| `dotnet-cleanup.sortExplorerByDefault` | Sort Explorer alphabetically |
+
+## Explorer title-bar button: toggle sort by modified date
+
+A new icon shows up in the Explorer view's title bar (next to *New File*, *New Folder*, *Refresh*, *Collapse All*). Clicking it flips `explorer.sortOrder` between `default` (alphabetical) and `modified` (most recently changed at the top). The icon itself swaps to indicate the next state: clock (`$(history)`) means "click to sort by modified date", `Aa` (`$(case-sensitive)`) means "click to sort alphabetically". Setting writes to user-global so the sort order sticks across windows.
 
 ## One-time settings applied on first activation
 
