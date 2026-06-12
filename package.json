@@ -118,10 +118,30 @@
         "command": "dotnet-cleanup.revealDataverseEnvironmentsConfig",
         "title": "Reveal Dataverse environments config",
         "icon": "$(go-to-file)"
+      },
+      {
+        "command": "dotnet-cleanup.sendToLocalNugetFeed",
+        "title": "Send to Local NuGet Feed",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "dotnet-cleanup.sortExplorerByModified",
+        "title": "Sort Explorer by modified date",
+        "icon": "$(history)"
+      },
+      {
+        "command": "dotnet-cleanup.sortExplorerByDefault",
+        "title": "Sort Explorer alphabetically",
+        "icon": "$(case-sensitive)"
       }
     ],
     "menus": {
       "explorer/context": [
+        {
+          "command": "dotnet-cleanup.sendToLocalNugetFeed",
+          "when": "resourceScheme == file && resourceExtname == .nupkg",
+          "group": "1_zekelin_nuget@0"
+        },
         {
           "command": "dotnet-cleanup.dotnetPublish",
           "when": "resourcePath in dotnetCleanup.publishTargets",
@@ -166,6 +186,18 @@
           "command": "dotnet-cleanup.openInNewWindow",
           "when": "resourceScheme == file",
           "group": "z_zekelin_openInNewWindow@0"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "dotnet-cleanup.sortExplorerByModified",
+          "when": "view == workbench.explorer.fileView && !zekelin.explorerSortByModified",
+          "group": "navigation@99"
+        },
+        {
+          "command": "dotnet-cleanup.sortExplorerByDefault",
+          "when": "view == workbench.explorer.fileView && zekelin.explorerSortByModified",
+          "group": "navigation@99"
         }
       ]
     }

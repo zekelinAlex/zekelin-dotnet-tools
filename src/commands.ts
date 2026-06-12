@@ -1528,3 +1528,176 @@ export async function openInNewWindow(resourceUri: vscode.Uri): Promise<void> {
     noRecentEntry: false
   });
 }
+
+// ─── Send to Local NuGet Feed ─────────────────────────────────────────────────
+// Stores the chosen feed path in the global config so it works across
+// every workspace on this machine, and only asks once.
+
+function getLocalNugetFeedPath(): string | undefined {
+  const cfg = readGlobalConfig();
+  const raw = cfg.localNugetFeed;
+  return (typeof raw === 'string' && raw.trim().length > 0) ? raw.trim() : undefined;
+}
+
+function setLocalNugetFeedPath(feedPath: string): void {
+  const cfg = readGlobalConfig();
+  cfg.localNugetFeed = feedPath;
+  writeGlobalConfig(cfg);
+}
+
+function clearLocalNugetFeedPath(): void {
+  const cfg = readGlobalConfig();
+  if ('localNugetFeed' in cfg) {
+    delete cfg.localNugetFeed;
+    writeGlobalConfig(cfg);
+  }
+}
+
+function normalizeForCompare(p: string): string {
+  return path.resolve(p).replace(/[\\/]+$/, '').toLowerCase();
+}
+
+async function ensureRegisteredAsNugetSource(
+  feedPath: string,
+  outputChannel: vscode.OutputChannel
+): Promise<boolean> {
+  outputChannel.appendLine('Listing NuGet sources ...');
+  const list = await runDotnet(['nuget', 'list', 'source']);
+  if (list.error) {
+    outputChannel.appendLine(list.stderr || list.error.message);
+    return false;
+  }
+  if (list.stdout) { outputChannel.appendLine(list.stdout.trimEnd()); }
+
+  const sources = parseNugetSources(list.stdout);
+  const target = normalizeForCompare(feedPath);
+  const already = sources.find((s) => {
+    try { return normalizeForCompare(s.url) === target; } catch { return false; }
+  });
+  if (already) {
+    outputChannel.appendLine(`Feed already registered as NuGet source "${already.name}".`);
+    return true;
+  }
+
+  // Pick a name that doesn't collide with an existing source.
+  const taken = new Set(sources.map((s) => s.name.toLowerCase()));
+  const base = path.basename(feedPath) || 'Local';
+  let name = taken.has(base.toLowerCase()) ? `${base}_zekelin` : base;
+  let suffix = 2;
+  while (taken.has(name.toLowerCase())) { name = `${base}_zekelin${suffix++}`; }
+
+  outputChannel.appendLine(`Registering "${feedPath}" as NuGet source "${name}" ...`);
+  const add = await runDotnet(['nuget', 'add', 'source', feedPath, '--name', name]);
+  if (add.stdout) { outputChannel.appendLine(add.stdout.trimEnd()); }
+  if (add.stderr) { outputChannel.appendLine(add.stderr.trimEnd()); }
+  if (add.error) {
+    outputChannel.appendLine(`Failed to register source: ${add.error.message}`);
+    return false;
+  }
+  return true;
+}
+
+export async function sendToLocalNugetFeed(
+  resourceUri: vscode.Uri,
+  outputChannel: vscode.OutputChannel
+): Promise<void> {
+  const pkgPath = resourceUri?.fsPath;
+  if (!pkgPath || !pkgPath.toLowerCase().endsWith('.nupkg')) {
+    vscode.window.showWarningMessage('Send to Local NuGet Feed requires a .nupkg file.');
+    return;
+  }
+  if (!fs.existsSync(pkgPath)) {
+    vscode.window.showErrorMessage(`Package file not found: ${pkgPath}`);
+    return;
+  }
+
+  outputChannel.show(true);
+
+  let feedPath = getLocalNugetFeedPath();
+  let prompted = false;
+
+  // If the previously-saved path no longer exists, treat as unset and re-prompt.
+  if (feedPath && !fs.existsSync(feedPath)) {
+    outputChannel.appendLine(`Saved local NuGet feed "${feedPath}" no longer exists — asking for a new path.`);
+    clearLocalNugetFeedPath();
+    feedPath = undefined;
+  }
+
+  if (!feedPath) {
+    const entered = await vscode.window.showInputBox({
+      prompt: 'Path to local NuGet feed folder (saved globally, asked only once)',
+      placeHolder: 'e.g. C:\\NuGetLocal',
+      validateInput: (v) => v.trim().length === 0 ? 'Path is required' : null
+    });
+    if (entered === undefined) { return; }
+    feedPath = entered.trim();
+    if (!feedPath) { return; }
+    prompted = true;
+  }
+
+  // Validate folder.
+  if (!fs.existsSync(feedPath)) {
+    vscode.window.showErrorMessage(`Folder does not exist: ${feedPath}`);
+    return;
+  }
+  let st: fs.Stats;
+  try { st = fs.statSync(feedPath); } catch (err) {
+    vscode.window.showErrorMessage(`Cannot stat ${feedPath}: ${(err as Error).message}`);
+    return;
+  }
+  if (!st.isDirectory()) {
+    vscode.window.showErrorMessage(`Path is not a directory: ${feedPath}`);
+    return;
+  }
+
+  // Make sure the folder is a registered NuGet source.
+  const registered = await ensureRegisteredAsNugetSource(feedPath, outputChannel);
+  if (!registered) {
+    vscode.window.showErrorMessage('Failed to register local NuGet feed. See output for details.');
+    return;
+  }
+
+  // Copy the package into the feed folder.
+  const dst = path.join(feedPath, path.basename(pkgPath));
+  try {
+    fs.copyFileSync(pkgPath, dst);
+    outputChannel.appendLine(`Copied "${path.basename(pkgPath)}" → ${dst}`);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Failed to copy package: ${(err as Error).message}`);
+    return;
+  }
+
+  // Save the path globally only after the whole thing succeeded.
+  if (prompted || getLocalNugetFeedPath() !== feedPath) {
+    setLocalNugetFeedPath(feedPath);
+    outputChannel.appendLine(`Saved local NuGet feed path to ${GLOBAL_CONFIG_FILE}`);
+  }
+
+  vscode.window.showInformationMessage(`Sent "${path.basename(pkgPath)}" to ${feedPath}.`);
+}
+
+// ─── Explorer sort toggle (alphabetical ↔ modified date) ──────────────────────
+// Both commands write to user-global explorer.sortOrder; the context key
+// zekelin.explorerSortByModified is what swaps which of the two title-bar
+// buttons is currently visible.
+
+export async function sortExplorerByModified(): Promise<void> {
+  await vscode.workspace.getConfiguration('explorer').update(
+    'sortOrder',
+    'modified',
+    vscode.ConfigurationTarget.Global
+  );
+}
+
+export async function sortExplorerByDefault(): Promise<void> {
+  await vscode.workspace.getConfiguration('explorer').update(
+    'sortOrder',
+    'default',
+    vscode.ConfigurationTarget.Global
+  );
+}
+
+export function updateExplorerSortContextKey(): void {
+  const cur = vscode.workspace.getConfiguration('explorer').get<string>('sortOrder');
+  vscode.commands.executeCommand('setContext', 'zekelin.explorerSortByModified', cur === 'modified');
+}

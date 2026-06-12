@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { CleanupActionsProvider, DevkitBuildActionsProvider, DataverseActionsProvider } from './treeViewProvider';
-import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, dataverseSolutionUnpack, dataverseSolutionImport, dataversePackageDeploy, addDataverseEnvironment, createDataverseEnvironment, deleteDataverseEnvironment, revealDataverseEnvironmentsConfig, migrateEnvironmentsToGlobalIfNeeded, openInNewWindow, DEVKIT_FOLDER_NAME } from './commands';
+import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, dataverseSolutionUnpack, dataverseSolutionImport, dataversePackageDeploy, addDataverseEnvironment, createDataverseEnvironment, deleteDataverseEnvironment, revealDataverseEnvironmentsConfig, migrateEnvironmentsToGlobalIfNeeded, openInNewWindow, sendToLocalNugetFeed, sortExplorerByModified, sortExplorerByDefault, updateExplorerSortContextKey, DEVKIT_FOLDER_NAME } from './commands';
 
 export function activate(context: vscode.ExtensionContext) {
   const outputChannel = vscode.window.createOutputChannel('Zekelin .NET Tools');
@@ -123,10 +123,39 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.sendToLocalNugetFeed', (uri: vscode.Uri) => {
+      return sendToLocalNugetFeed(uri, outputChannel);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.sortExplorerByModified', () => sortExplorerByModified())
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.sortExplorerByDefault', () => sortExplorerByDefault())
+  );
+
+  // Seed the context key right now, and keep it in sync if the user (or
+  // another extension, or settings sync) changes explorer.sortOrder later.
+  updateExplorerSortContextKey();
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('explorer.sortOrder')) {
+        updateExplorerSortContextKey();
+      }
+    })
+  );
+
   // Run migration once at activation so users see the info message even
   // before they open the Dataverse section. Safe to call repeatedly — it
   // short-circuits after the first invocation.
   migrateEnvironmentsToGlobalIfNeeded(outputChannel);
+
+  // One-time apply of preferred window.title so the folder name shows up
+  // in the OS taskbar instead of the active file. Only fires when the user
+  // hasn't set their own global value, so we never clobber a custom setting.
+  applyPreferredWindowTitle(outputChannel);
 
   setupDevkitBuildContext(context);
   setupGitChangedPathsContext(context);
@@ -267,6 +296,30 @@ function setupGitChangedPathsContext(context: vscode.ExtensionContext) {
   };
 
   init();
+}
+
+const PREFERRED_WINDOW_TITLE = '${dirty}${rootName}${separator}${appName}';
+
+async function applyPreferredWindowTitle(outputChannel: vscode.OutputChannel): Promise<void> {
+  try {
+    const cfg = vscode.workspace.getConfiguration();
+    const inspect = cfg.inspect<string>('window.title');
+    // Inspect tells us where the value came from:
+    //   globalValue   — explicit user setting in settings.json (we don't touch)
+    //   workspaceValue / workspaceFolderValue — workspace overrides (we don't touch either)
+    //   defaultValue  — VS Code built-in fallback (we may replace at the user level)
+    if (inspect?.globalValue !== undefined) { return; }
+    if (inspect?.workspaceValue !== undefined) { return; }
+    if (inspect?.workspaceFolderValue !== undefined) { return; }
+
+    await cfg.update('window.title', PREFERRED_WINDOW_TITLE, vscode.ConfigurationTarget.Global);
+    outputChannel.appendLine(`Set window.title = "${PREFERRED_WINDOW_TITLE}" (global) so the workspace folder name shows in the taskbar.`);
+    vscode.window.showInformationMessage(
+      'Zekelin .NET Tools: window.title now shows the workspace folder name in the taskbar. Edit window.title in settings.json to revert.'
+    );
+  } catch (err) {
+    outputChannel.appendLine(`Failed to apply preferred window.title: ${(err as Error).message}`);
+  }
 }
 
 export function deactivate() {}
