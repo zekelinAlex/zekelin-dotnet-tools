@@ -433,8 +433,8 @@ export async function dotnetWipe(
   for (const folder of targetFolders) {
     const binPath = path.join(folder, 'bin');
     const objPath = path.join(folder, 'obj');
-    if (fsFns.existsSync(binPath)) { foldersToDelete.push(`"${binPath}"`); }
-    if (fsFns.existsSync(objPath)) { foldersToDelete.push(`"${objPath}"`); }
+    if (fsFns.existsSync(binPath)) { foldersToDelete.push(binPath); }
+    if (fsFns.existsSync(objPath)) { foldersToDelete.push(objPath); }
   }
 
   if (foldersToDelete.length === 0) {
@@ -443,20 +443,68 @@ export async function dotnetWipe(
     return;
   }
 
-  const psCommand = `Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile -Command ${foldersToDelete.map(f => `Remove-Item -Recurse -Force ${f}`).join('; ')}'`;
+  // Build a temp .ps1 script with all the deletes. The previous implementation
+  // crammed every Remove-Item into a single -ArgumentList string, which blew
+  // past the ~8 191-char cmd.exe command-line limit when there were many
+  // targets (e.g. 700+ projects) and the elevated process never launched —
+  // the UAC prompt didn't even appear. With -File <script.ps1> the launcher
+  // command stays constant-length regardless of how many folders we process.
+  const tempScriptPath = path.join(os.tmpdir(), `zekelin-dotnet-wipe-${Date.now()}-${process.pid}.ps1`);
+  const tempLogPath = path.join(os.tmpdir(), `zekelin-dotnet-wipe-${Date.now()}-${process.pid}.log`);
+
+  const psSingleQuote = (s: string) => `'${s.replace(/'/g, "''")}'`;
+  const scriptLines: string[] = [
+    '$ErrorActionPreference = "Continue"',
+    `Start-Transcript -Path ${psSingleQuote(tempLogPath)} -Force | Out-Null`,
+    `Write-Host "Deleting ${foldersToDelete.length} folder(s)..."`,
+    ...foldersToDelete.map((f) =>
+      `Remove-Item -LiteralPath ${psSingleQuote(f)} -Recurse -Force -ErrorAction SilentlyContinue`
+    ),
+    'Write-Host "Done."',
+    'Stop-Transcript | Out-Null'
+  ];
+
+  try {
+    // Write UTF-8 with BOM so PowerShell 5.1 correctly interprets non-ASCII paths.
+    fs.writeFileSync(tempScriptPath, '﻿' + scriptLines.join('\r\n') + '\r\n', 'utf8');
+  } catch (err) {
+    outputChannel.appendLine(`Failed to write temp script: ${(err as Error).message}`);
+    vscode.window.showErrorMessage('Failed to prepare .NET Wipe script. See output for details.');
+    return;
+  }
 
   outputChannel.appendLine(`Deleting ${foldersToDelete.length} bin/obj folder(s) as admin ...`);
+  outputChannel.appendLine(`  script:  ${tempScriptPath}`);
+  outputChannel.appendLine(`  log:     ${tempLogPath}`);
+
+  // Outer launcher: a tiny, constant-length command that asks Windows to
+  // run the temp script elevated. -ArgumentList carries 5 short literal
+  // tokens — no per-folder content in here.
+  const escScript = tempScriptPath.replace(/'/g, "''");
+  const launchCmd = `Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${escScript}'`;
 
   return new Promise((resolve) => {
-    execFn(`powershell -NoProfile -Command "${psCommand}"`, (error, stdout, stderr) => {
+    execFn(`powershell -NoProfile -Command "${launchCmd}"`, (error, stdout, stderr) => {
+      // Surface whatever the elevated transcript captured.
+      try {
+        if (fs.existsSync(tempLogPath)) {
+          const log = fs.readFileSync(tempLogPath, 'utf8').replace(/^﻿/, '').trimEnd();
+          if (log.length > 0) { outputChannel.appendLine(log); }
+        }
+      } catch { /* ignore log read errors */ }
+
+      // Clean up temp artefacts.
+      try { fs.unlinkSync(tempScriptPath); } catch { /* ignore */ }
+      try { fs.unlinkSync(tempLogPath); } catch { /* ignore */ }
+
       if (error) {
         outputChannel.appendLine(`Error: ${error.message}`);
         if (stderr) { outputChannel.appendLine(stderr); }
         vscode.window.showErrorMessage('Failed to delete bin/obj folders. See output for details.');
       } else {
         if (stdout) { outputChannel.appendLine(stdout); }
-        outputChannel.appendLine('bin/ and obj/ folders deleted successfully.');
-        vscode.window.showInformationMessage('.NET Wipe completed — bin/ and obj/ deleted.');
+        outputChannel.appendLine(`bin/ and obj/ folders deletion completed (${foldersToDelete.length} target(s)).`);
+        vscode.window.showInformationMessage(`.NET Wipe completed — ${foldersToDelete.length} folder(s) processed.`);
       }
       resolve();
     });
