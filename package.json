@@ -38,6 +38,11 @@
         {
           "id": "zekelinDataverseActions",
           "name": "Dataverse"
+        },
+        {
+          "id": "zekelinToolsCliActions",
+          "name": "tools-cli",
+          "when": "zekelin.isToolsCli"
         }
       ]
     },
@@ -133,6 +138,18 @@
         "command": "dotnet-cleanup.sortExplorerByDefault",
         "title": "Sort Explorer alphabetically",
         "icon": "$(case-sensitive)"
+      },
+      {
+        "command": "dotnet-cleanup.toolsCliReinstallLocal",
+        "title": "tools-cli: Reinstall Local"
+      },
+      {
+        "command": "dotnet-cleanup.toolsCliReinstallLocalWithMcp",
+        "title": "tools-cli: Reinstall Local (with MCP)"
+      },
+      {
+        "command": "dotnet-cleanup.toolsCliGenerateScript",
+        "title": "tools-cli: Generate Reinstall Script"
       }
     ],
     "menus": {

@@ -42,6 +42,22 @@ export class DevkitBuildActionsProvider implements vscode.TreeDataProvider<Clean
   }
 }
 
+export class ToolsCliActionsProvider implements vscode.TreeDataProvider<CleanupActionItem> {
+  private actions: CleanupActionItem[] = [
+    new CleanupActionItem('Reinstall Local', 'dotnet-cleanup.toolsCliReinstallLocal'),
+    new CleanupActionItem('Reinstall Local (with MCP)', 'dotnet-cleanup.toolsCliReinstallLocalWithMcp'),
+    new CleanupActionItem('Generate Script', 'dotnet-cleanup.toolsCliGenerateScript')
+  ];
+
+  getTreeItem(element: CleanupActionItem): vscode.TreeItem {
+    return element;
+  }
+
+  getChildren(): CleanupActionItem[] {
+    return this.actions;
+  }
+}
+
 export class DataverseActionsProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
   private _onDidChangeTreeData = new vscode.EventEmitter<vscode.TreeItem | undefined | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;

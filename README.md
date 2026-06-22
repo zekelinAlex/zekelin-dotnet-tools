@@ -48,6 +48,16 @@ All five stages run inside a single cancellable progress notification.
 
 After generation, the script can be invoked from any PowerShell terminal with `./dev-scripts/Install-TargetNugets.ps1` — it doesn't require the VS Code extension to be installed on the machine that runs it.
 
+### Activity Bar view — `tools-cli` section
+
+Appears only when the currently open workspace's root folder is named `tools-cli`. The section title matches the folder name and contains three actions targeting `scripts/reinstall-local.ps1`:
+
+| Button | What it does |
+| --- | --- |
+| **Reinstall Local** | Runs `pwsh -NoProfile -ExecutionPolicy Bypass -File <repo>/scripts/reinstall-local.ps1` with output streamed live to the Output channel and a progress notification. |
+| **Reinstall Local (with MCP)** | Same as above, but forwards `-IncludeMcp` to the underlying script. |
+| **Generate Script** | Writes `<repo>/dev-scripts/Reinstall-Local.ps1` — a standalone PowerShell wrapper that locates `scripts/reinstall-local.ps1` relative to itself (so it can be invoked from any cwd) and accepts an optional `-IncludeMcp` switch. Also writes `dev-scripts/README.md` and appends `dev-scripts/` to `.gitignore` (idempotent). Mirrors the devkit-build "Generate Install Script" pattern — useful for AI agents and isolated terminals that don't have the VS Code extension installed. |
+
 ### Activity Bar view — `Dataverse` section
 
 Always visible. Manages a list of Dataverse environments stored in a **global** config file under the user's home directory, so the same environment list shows up in every workspace and every VS Code variant (stable / Insiders / Cursor) on the machine:
@@ -121,6 +131,9 @@ Every action is also directly invocable via `Ctrl+Shift+P`:
 | `dotnet-cleanup.sendToLocalNugetFeed` | Send to Local NuGet Feed |
 | `dotnet-cleanup.sortExplorerByModified` | Sort Explorer by modified date |
 | `dotnet-cleanup.sortExplorerByDefault` | Sort Explorer alphabetically |
+| `dotnet-cleanup.toolsCliReinstallLocal` | tools-cli: Reinstall Local |
+| `dotnet-cleanup.toolsCliReinstallLocalWithMcp` | tools-cli: Reinstall Local (with MCP) |
+| `dotnet-cleanup.toolsCliGenerateScript` | tools-cli: Generate Reinstall Script |
 
 ## Explorer title-bar button: toggle sort by modified date
 
