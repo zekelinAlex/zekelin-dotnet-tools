@@ -50,13 +50,13 @@ After generation, the script can be invoked from any PowerShell terminal with `.
 
 ### Activity Bar view — `tools-cli` section
 
-Appears only when the currently open workspace's root folder is named `tools-cli`. The section title matches the folder name and contains three actions targeting `scripts/reinstall-local.ps1`:
+Appears only when the currently open workspace's root folder is named `tools-cli`. The extension carries the canonical `reinstall-local.ps1` content embedded inline — the three buttons do not depend on any file existing on disk.
 
 | Button | What it does |
 | --- | --- |
-| **Reinstall Local** | Runs `pwsh -NoProfile -ExecutionPolicy Bypass -File <repo>/scripts/reinstall-local.ps1` with output streamed live to the Output channel and a progress notification. |
-| **Reinstall Local (with MCP)** | Same as above, but forwards `-IncludeMcp` to the underlying script. |
-| **Generate Script** | Writes `<repo>/dev-scripts/Reinstall-Local.ps1` — a standalone PowerShell wrapper that locates `scripts/reinstall-local.ps1` relative to itself (so it can be invoked from any cwd) and accepts an optional `-IncludeMcp` switch. Also writes `dev-scripts/README.md` and appends `dev-scripts/` to `.gitignore` (idempotent). Mirrors the devkit-build "Generate Install Script" pattern — useful for AI agents and isolated terminals that don't have the VS Code extension installed. |
+| **Reinstall Local** | Writes the embedded script to a temp `.ps1` and runs `pwsh -NoProfile -ExecutionPolicy Bypass -File <temp> -RepoRoot "<workspace>"`. Streams output live; temp file is cleaned up afterwards. Works whether or not `<repo>/scripts/reinstall-local.ps1` exists on disk. |
+| **Reinstall Local (with MCP)** | Same as above with `-IncludeMcp` appended. |
+| **Generate Script** | Writes the same embedded content to `<repo>/scripts/reinstall-local.ps1` (creating `scripts/` if missing). Use this when you want a committed, standalone copy you can run outside VS Code — e.g. CI, agents, or other machines without the extension. The script accepts an optional `-RepoRoot` parameter; standalone runs fall back to `Split-Path -Parent $PSScriptRoot`. |
 
 ### Activity Bar view — `Dataverse` section
 

@@ -1725,9 +1725,102 @@ export async function sendToLocalNugetFeed(
 }
 
 // ─── tools-cli workspace actions ──────────────────────────────────────────────
+//
+// The extension is the source of truth for this script — embedded below. The
+// run buttons write a fresh copy to a temp .ps1 every time they're clicked, so
+// they work regardless of whether <repo>/scripts/reinstall-local.ps1 exists.
+// "Generate Script" writes the same content to that canonical path for users
+// who want a standalone copy in their repo.
 
 export const TOOLS_CLI_FOLDER_NAME = 'tools-cli';
-const TOOLS_CLI_REINSTALL_SCRIPT = path.join('scripts', 'reinstall-local.ps1');
+const TOOLS_CLI_REINSTALL_SCRIPT_REL = path.join('scripts', 'reinstall-local.ps1');
+
+// The script accepts an optional -RepoRoot parameter — the extension passes
+// the actual workspace path when running from a temp file (where $PSScriptRoot
+// would otherwise resolve to the OS temp dir). Standalone runs leave -RepoRoot
+// blank and fall back to $PSScriptRoot's parent.
+const TOOLS_CLI_REINSTALL_SCRIPT_CONTENT = `#Requires -Version 7
+<#
+.SYNOPSIS
+    Removes the globally installed TALXIS CLI and installs the local build
+    from this repository instead.
+
+.DESCRIPTION
+    Packs src/TALXIS.CLI under a unique dev version (so NuGet can't serve a
+    stale cached copy), uninstalls any existing global 'txc', then installs the
+    freshly packed nupkg. Pass -IncludeMcp to do the same for 'txc-mcp'.
+
+.EXAMPLE
+    ./scripts/reinstall-local.ps1
+    ./scripts/reinstall-local.ps1 -IncludeMcp -Configuration Debug
+#>
+[CmdletBinding()]
+param(
+    [string]$Configuration = 'Release',
+    [switch]$IncludeMcp,
+    # When invoked by the Zekelin .NET Tools VS Code extension via a temp .ps1,
+    # the extension passes the actual tools-cli workspace path here.
+    # Standalone runs (from scripts/) leave this blank and the script falls
+    # back to its own location's parent.
+    [string]$RepoRoot
+)
+
+$ErrorActionPreference = 'Stop'
+
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent $PSScriptRoot
+}
+$repoRoot  = $RepoRoot
+$nupkgDir  = 'C:\\NuGetLocal'
+$cliProj   = Join-Path $repoRoot 'src/TALXIS.CLI/TALXIS.CLI.csproj'
+$mcpProj   = Join-Path $repoRoot 'src/TALXIS.CLI.MCP/TALXIS.CLI.MCP.csproj'
+
+# Unique prerelease version per run -> bypasses the NuGet global-packages cache.
+$version = '0.0.0-local.{0}' -f (Get-Date -Format 'yyyyMMddHHmmss')
+
+function Invoke-Reinstall {
+    param(
+        [string]$PackageId,
+        [string]$ProjectPath,
+        [string]$CommandName
+    )
+
+    Write-Host "==> $PackageId ($CommandName)" -ForegroundColor Cyan
+
+    # 1. Uninstall the current global tool (ignore 'not installed').
+    Write-Host "    uninstalling existing global tool..."
+    try { dotnet tool uninstall --global $PackageId 2>&1 | Out-Null }
+    catch { Write-Host "    (was not installed)" -ForegroundColor DarkGray }
+
+    # 2. Pack the local project under the unique dev version.
+    Write-Host "    packing $version ..."
+    # PackageVersion (not Version) drives the nupkg name and is hard-set in
+    # src/Directory.Build.props, so it must be overridden explicitly here.
+    dotnet pack $ProjectPath -c $Configuration -o $nupkgDir "-p:PackageVersion=$version" "-p:Version=$version" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "dotnet pack failed for $PackageId" }
+
+    # 3. Install the freshly packed nupkg from the local folder.
+    Write-Host "    installing from $nupkgDir ..."
+    dotnet tool install --global --add-source $nupkgDir --version $version $PackageId
+    if ($LASTEXITCODE -ne 0) { throw "dotnet tool install failed for $PackageId" }
+
+    Write-Host "    done -> $CommandName $version" -ForegroundColor Green
+}
+
+# Drop only our previous local builds; leave any other packages in the shared
+# C:\\NuGetLocal feed untouched.
+New-Item -ItemType Directory -Force -Path $nupkgDir | Out-Null
+Remove-Item (Join-Path $nupkgDir 'TALXIS.CLI.*.nupkg') -Force -ErrorAction SilentlyContinue
+
+Invoke-Reinstall -PackageId 'TALXIS.CLI' -ProjectPath $cliProj -CommandName 'txc'
+if ($IncludeMcp) {
+    Invoke-Reinstall -PackageId 'TALXIS.CLI.MCP' -ProjectPath $mcpProj -CommandName 'txc-mcp'
+}
+
+Write-Host ""
+Write-Host "Installed tools:" -ForegroundColor Cyan
+dotnet tool list --global | Select-String -Pattern 'talxis'
+`;
 
 export function getToolsCliRoot(): string | undefined {
   for (const folder of vscode.workspace.workspaceFolders || []) {
@@ -1793,23 +1886,35 @@ export async function toolsCliReinstallLocal(
     vscode.window.showErrorMessage(`No workspace folder named "${TOOLS_CLI_FOLDER_NAME}" is open.`);
     return;
   }
-  const scriptPath = path.join(root, TOOLS_CLI_REINSTALL_SCRIPT);
-  if (!fs.existsSync(scriptPath)) {
-    vscode.window.showErrorMessage(`Script not found: ${scriptPath}`);
+
+  outputChannel.show(true);
+
+  // Write the embedded script to a temp .ps1 — this means the buttons work
+  // even if <repo>/scripts/reinstall-local.ps1 has been deleted or never
+  // existed in this branch. -RepoRoot is passed explicitly so $PSScriptRoot
+  // (which would resolve to %TEMP%) doesn't matter.
+  const tempScript = path.join(os.tmpdir(), `zekelin-tools-cli-reinstall-${Date.now()}-${process.pid}.ps1`);
+  try {
+    fs.writeFileSync(tempScript, '﻿' + TOOLS_CLI_REINSTALL_SCRIPT_CONTENT, 'utf8');
+  } catch (err) {
+    outputChannel.appendLine(`Failed to write temp script: ${(err as Error).message}`);
+    vscode.window.showErrorMessage('Failed to prepare Reinstall Local script.');
     return;
   }
 
-  outputChannel.show(true);
-  const extraArgs = includeMcp ? ['-IncludeMcp'] : [];
-  const title = includeMcp
-    ? `Reinstall Local (with MCP)`
-    : `Reinstall Local`;
+  const extraArgs = ['-RepoRoot', root];
+  if (includeMcp) { extraArgs.push('-IncludeMcp'); }
+  const title = includeMcp ? `Reinstall Local (with MCP)` : `Reinstall Local`;
 
-  const ok = await runPowerShellScript(scriptPath, extraArgs, title, outputChannel, spawnFn);
-  if (ok) {
-    vscode.window.showInformationMessage(`${title} completed.`);
-  } else {
-    vscode.window.showErrorMessage(`${title} failed. See output for details.`);
+  try {
+    const ok = await runPowerShellScript(tempScript, extraArgs, title, outputChannel, spawnFn);
+    if (ok) {
+      vscode.window.showInformationMessage(`${title} completed.`);
+    } else {
+      vscode.window.showErrorMessage(`${title} failed. See output for details.`);
+    }
+  } finally {
+    try { fs.unlinkSync(tempScript); } catch { /* ignore cleanup error */ }
   }
 }
 
@@ -1821,112 +1926,24 @@ export async function toolsCliGenerateScript(
     vscode.window.showErrorMessage(`No workspace folder named "${TOOLS_CLI_FOLDER_NAME}" is open.`);
     return;
   }
-  const sourceScript = path.join(root, TOOLS_CLI_REINSTALL_SCRIPT);
-  if (!fs.existsSync(sourceScript)) {
-    vscode.window.showErrorMessage(`Source script not found: ${sourceScript}`);
-    return;
-  }
 
-  const scriptsDir = path.join(root, 'dev-scripts');
-  const wrapperPath = path.join(scriptsDir, 'Reinstall-Local.ps1');
-  const readmePath = path.join(scriptsDir, 'README.md');
+  const targetPath = path.join(root, TOOLS_CLI_REINSTALL_SCRIPT_REL);
+  const targetDir = path.dirname(targetPath);
 
   try {
-    if (!fs.existsSync(scriptsDir)) { fs.mkdirSync(scriptsDir, { recursive: true }); }
+    if (!fs.existsSync(targetDir)) { fs.mkdirSync(targetDir, { recursive: true }); }
+    // UTF-8 BOM so PowerShell 5.1 reads non-ASCII chars correctly if anyone
+    // runs the standalone copy on a Windows PowerShell that defaults to ANSI.
+    fs.writeFileSync(targetPath, '﻿' + TOOLS_CLI_REINSTALL_SCRIPT_CONTENT, 'utf8');
   } catch (err) {
-    outputChannel.appendLine(`Failed to create ${scriptsDir}: ${(err as Error).message}`);
-    vscode.window.showErrorMessage('Failed to create dev-scripts/ folder.');
+    outputChannel.appendLine(`Failed to write ${targetPath}: ${(err as Error).message}`);
+    vscode.window.showErrorMessage('Failed to generate reinstall-local.ps1.');
     return;
-  }
-
-  const wrapper = [
-    '# Reinstall-Local.ps1 — generated by Zekelin .NET Tools.',
-    '# Wrapper around tools-cli\'s scripts/reinstall-local.ps1, runnable from any cwd.',
-    '# Pass -IncludeMcp to forward the flag to the underlying script.',
-    '#',
-    '# Examples:',
-    '#   ./dev-scripts/Reinstall-Local.ps1',
-    '#   ./dev-scripts/Reinstall-Local.ps1 -IncludeMcp',
-    '',
-    '[CmdletBinding()]',
-    'param(',
-    '    [switch]$IncludeMcp',
-    ')',
-    '',
-    '$ErrorActionPreference = \'Stop\'',
-    '',
-    '# Resolve the repo root relative to this wrapper, regardless of the caller\'s cwd.',
-    '$repoRoot = Split-Path -Parent $PSScriptRoot',
-    '$target   = Join-Path $repoRoot \'scripts/reinstall-local.ps1\'',
-    '',
-    'if (-not (Test-Path -LiteralPath $target)) {',
-    '    throw "Cannot find $target — did the repo layout change?"',
-    '}',
-    '',
-    'Write-Host "Running $target $(if ($IncludeMcp) { \'-IncludeMcp\' })"',
-    '',
-    'if ($IncludeMcp) {',
-    '    & $target -IncludeMcp',
-    '} else {',
-    '    & $target',
-    '}',
-    'exit $LASTEXITCODE',
-    ''
-  ].join('\r\n');
-
-  const readme = [
-    '# dev-scripts/',
-    '',
-    'Auto-generated by **Zekelin .NET Tools**. Reproduces the "Reinstall Local"',
-    'buttons from the activity-bar sidebar as a standalone PowerShell wrapper,',
-    'so you (or an agent) can run it from any terminal without needing the',
-    'VS Code extension installed on that machine.',
-    '',
-    '## Reinstall-Local.ps1',
-    '',
-    'Thin wrapper around `scripts/reinstall-local.ps1`. Locates the script',
-    'relative to its own location (`Split-Path -Parent $PSScriptRoot`), so it',
-    'works regardless of the current working directory.',
-    '',
-    '```powershell',
-    './dev-scripts/Reinstall-Local.ps1',
-    './dev-scripts/Reinstall-Local.ps1 -IncludeMcp',
-    '```',
-    '',
-    'Run this before testing changes to `tools-cli` that need the local install',
-    'to refresh.',
-    ''
-  ].join('\r\n');
-
-  try {
-    fs.writeFileSync(wrapperPath, wrapper, 'utf8');
-    fs.writeFileSync(readmePath, readme, 'utf8');
-  } catch (err) {
-    outputChannel.appendLine(`Failed to write generated files: ${(err as Error).message}`);
-    vscode.window.showErrorMessage('Failed to generate Reinstall-Local.ps1.');
-    return;
-  }
-
-  // Mirror the devkit-build behaviour: append dev-scripts/ to .gitignore (idempotent).
-  const gitignorePath = path.join(root, '.gitignore');
-  try {
-    let existing = '';
-    try { existing = fs.readFileSync(gitignorePath, 'utf8'); } catch { /* no .gitignore yet */ }
-    const lines = existing.split(/\r?\n/);
-    const hasEntry = lines.some((l) => l.trim() === 'dev-scripts/' || l.trim() === 'dev-scripts');
-    if (!hasEntry) {
-      const sep = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
-      fs.writeFileSync(gitignorePath, existing + sep + 'dev-scripts/\n', 'utf8');
-      outputChannel.appendLine(`Appended "dev-scripts/" to ${gitignorePath}`);
-    }
-  } catch (err) {
-    outputChannel.appendLine(`Warning: failed to update .gitignore — ${(err as Error).message}`);
   }
 
   outputChannel.show(true);
-  outputChannel.appendLine(`Wrote ${wrapperPath}`);
-  outputChannel.appendLine(`Wrote ${readmePath}`);
-  vscode.window.showInformationMessage(`Generated dev-scripts/Reinstall-Local.ps1 and README.md.`);
+  outputChannel.appendLine(`Wrote ${targetPath}`);
+  vscode.window.showInformationMessage(`Generated ${TOOLS_CLI_REINSTALL_SCRIPT_REL}.`);
 }
 
 // ─── Explorer sort toggle (alphabetical ↔ modified date) ──────────────────────
