@@ -15,6 +15,7 @@ These live under the default section and are available in any workspace:
 | **Clear NuGet Cache** | `dotnet nuget locals all --clear` — wipes every local NuGet cache. |
 | **Kill .NET Processes** | `taskkill /IM dotnet.exe /F` — ends every running `dotnet.exe`. |
 | **Kill VBCSCompiler** | `taskkill /IM VBCSCompiler.exe /F` — ends the stuck Roslyn compiler that often locks files in `bin/obj`. |
+| **Resend last commit** | `git commit --amend --no-edit --date=now` in the first workspace folder's repo — keeps the message, refreshes the timestamp. Modal confirmation shows the current SHA / subject / author / date before going through. Designed for local (not-yet-pushed) commits where you want the date to be "now"; if you've already pushed, you'll need `git push --force` afterwards. |
 
 ### Activity Bar view — `tools-devkit-build` section
 
@@ -134,6 +135,7 @@ Every action is also directly invocable via `Ctrl+Shift+P`:
 | `dotnet-cleanup.toolsCliReinstallLocal` | tools-cli: Reinstall Local |
 | `dotnet-cleanup.toolsCliReinstallLocalWithMcp` | tools-cli: Reinstall Local (with MCP) |
 | `dotnet-cleanup.toolsCliGenerateScript` | tools-cli: Generate Reinstall Script |
+| `dotnet-cleanup.resendLastCommit` | Resend last commit (refresh timestamp) |
 
 ## Explorer title-bar button: toggle sort by modified date
 

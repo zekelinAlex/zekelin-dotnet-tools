@@ -15,7 +15,8 @@ export class CleanupActionsProvider implements vscode.TreeDataProvider<CleanupAc
   private actions: CleanupActionItem[] = [
     new CleanupActionItem('Clear NuGet Cache', 'dotnet-cleanup.clearNugetCache'),
     new CleanupActionItem('Kill .NET Processes', 'dotnet-cleanup.killDotnetProcesses'),
-    new CleanupActionItem('Kill VBCSCompiler', 'dotnet-cleanup.killVBCSCompiler')
+    new CleanupActionItem('Kill VBCSCompiler', 'dotnet-cleanup.killVBCSCompiler'),
+    new CleanupActionItem('Resend last commit', 'dotnet-cleanup.resendLastCommit')
   ];
 
   getTreeItem(element: CleanupActionItem): vscode.TreeItem {

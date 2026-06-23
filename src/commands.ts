@@ -1971,3 +1971,67 @@ export function updateExplorerSortContextKey(): void {
   const cur = vscode.workspace.getConfiguration('explorer').get<string>('sortOrder');
   vscode.commands.executeCommand('setContext', 'zekelin.explorerSortByModified', cur === 'modified');
 }
+
+// ─── Resend last commit (refresh timestamp) ────────────────────────────────────
+// Runs `git commit --amend --no-edit --date=now` in the first workspace's repo.
+// Designed for not-yet-pushed commits where the user wants the timestamp to be
+// "now" without changing the message. Since amend rewrites the commit SHA, this
+// is safe locally but would require --force on push if already published.
+
+export async function resendLastCommit(
+  outputChannel: vscode.OutputChannel,
+  runner: GitRunner = defaultGitRunner,
+  confirm: (msg: string, modal: boolean, ...actions: string[]) => Thenable<string | undefined> =
+    (msg, modal, ...actions) => vscode.window.showWarningMessage(msg, { modal }, ...actions)
+): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    vscode.window.showErrorMessage('Open a workspace folder with a git repository first.');
+    return;
+  }
+
+  const seed = folders[0].uri.fsPath;
+  const rootRes = await runner(['rev-parse', '--show-toplevel'], seed);
+  if (rootRes.error) {
+    vscode.window.showErrorMessage('Not a git repository (or no commits yet).');
+    return;
+  }
+  const repoRoot = rootRes.stdout.trim();
+
+  // Grab last commit info to show in the confirmation prompt.
+  const info = await runner(['log', '-1', '--format=%h %s%n%an <%ae>%n%ad', '--date=iso'], repoRoot);
+  if (info.error) {
+    outputChannel.show(true);
+    outputChannel.appendLine(info.stderr || info.error.message);
+    vscode.window.showErrorMessage('No commits to amend in this repository.');
+    return;
+  }
+  const lines = info.stdout.split(/\r?\n/);
+  const [shaAndSubject = '', authorLine = '', dateLine = ''] = lines;
+
+  const choice = await confirm(
+    `Replace last commit with a new one (same message, fresh timestamp)?\n\n` +
+    `${shaAndSubject}\n${authorLine}\n${dateLine}\n\n` +
+    `Runs: git commit --amend --no-edit --date=now\n` +
+    `If you've already pushed this commit, you'll need git push --force afterwards.`,
+    true,
+    'Replace'
+  );
+  if (choice !== 'Replace') { return; }
+
+  outputChannel.show(true);
+  outputChannel.appendLine(`Repo: ${repoRoot}`);
+  outputChannel.appendLine(`Running: git commit --amend --no-edit --date=now`);
+  const res = await runner(['commit', '--amend', '--no-edit', '--date=now'], repoRoot);
+  if (res.stdout) { outputChannel.appendLine(res.stdout.trimEnd()); }
+  if (res.stderr) { outputChannel.appendLine(res.stderr.trimEnd()); }
+  if (res.error) {
+    vscode.window.showErrorMessage('git commit --amend failed. See output for details.');
+    return;
+  }
+
+  // Show new SHA so the user can see the commit was rewritten.
+  const after = await runner(['log', '-1', '--format=%h %s'], repoRoot);
+  if (after.stdout) { outputChannel.appendLine(`New commit: ${after.stdout.trim()}`); }
+  vscode.window.showInformationMessage('Last commit replaced — timestamp refreshed.');
+}
