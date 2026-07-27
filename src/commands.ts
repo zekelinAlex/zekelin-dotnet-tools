@@ -2071,13 +2071,27 @@ export async function combineCommits(
   }
   const head = headRes.stdout.trim();
 
+  const branchRes = await runner(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot);
+  const branch = branchRes.stdout.trim();
+
+  // Prefer the branch's creation point from its reflog so only commits made on
+  // THIS branch get squashed, even when it was cut from another feature branch.
   let base = '';
   let baseRef = '';
+  if (branch && branch !== 'HEAD') {
+    const reflog = await runner(['reflog', 'show', '--format=%H %gs', branch], repoRoot);
+    if (!reflog.error && reflog.stdout.trim()) {
+      const entries = reflog.stdout.trim().split(/\r?\n/);
+      const created = (entries[entries.length - 1] ?? '').match(/^([0-9a-f]{40}) branch: Created from /);
+      if (created && created[1] !== head) { base = created[1]; baseRef = 'branch creation point'; }
+    }
+  }
   for (const ref of COMBINE_BASE_REFS) {
+    if (base) break;
     const mb = await runner(['merge-base', 'HEAD', ref], repoRoot);
     if (mb.error) continue;
     const sha = mb.stdout.trim();
-    if (sha && sha !== head) { base = sha; baseRef = ref; break; }
+    if (sha && sha !== head) { base = sha; baseRef = ref; }
   }
   if (!base) {
     vscode.window.showErrorMessage('Combine commits: no commits ahead of main/master/upstream — nothing to squash.');
@@ -2102,9 +2116,6 @@ export async function combineCommits(
   }
   const message = msgRes.stdout.replace(/\r\n/g, '\n').trimEnd();
   const subject = message.split('\n')[0];
-
-  const branchRes = await runner(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot);
-  const branch = branchRes.stdout.trim();
 
   const choice = await confirm(
     `Squash ${count} commit(s) on "${branch}"${dirty ? ' plus uncommitted changes' : ''} into one commit?\n\n` +
