@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { CleanupActionsProvider, DevkitBuildActionsProvider, DataverseActionsProvider } from './treeViewProvider';
-import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, dataverseSolutionUnpack, dataverseSolutionImport, dataversePackageDeploy, addDataverseEnvironment, createDataverseEnvironment, deleteDataverseEnvironment, revealDataverseEnvironmentsConfig, migrateEnvironmentsToGlobalIfNeeded, openInNewWindow, sendToLocalNugetFeed, sortExplorerByModified, sortExplorerByDefault, updateExplorerSortContextKey, DEVKIT_FOLDER_NAME } from './commands';
+import { CleanupActionsProvider, DevkitBuildActionsProvider, DataverseActionsProvider, ToolsCliActionsProvider } from './treeViewProvider';
+import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, dataverseSolutionUnpack, dataverseSolutionImport, dataversePackageDeploy, addDataverseEnvironment, createDataverseEnvironment, deleteDataverseEnvironment, revealDataverseEnvironmentsConfig, migrateEnvironmentsToGlobalIfNeeded, openInNewWindow, sendToLocalNugetFeed, sortExplorerByModified, sortExplorerByDefault, updateExplorerSortContextKey, toolsCliReinstallLocal, toolsCliGenerateScript, resendLastCommit, DEVKIT_FOLDER_NAME, TOOLS_CLI_FOLDER_NAME } from './commands';
 
 export function activate(context: vscode.ExtensionContext) {
   const outputChannel = vscode.window.createOutputChannel('Zekelin .NET Tools');
@@ -14,6 +14,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   const dataverseProvider = new DataverseActionsProvider();
   vscode.window.registerTreeDataProvider('zekelinDataverseActions', dataverseProvider);
+
+  const toolsCliProvider = new ToolsCliActionsProvider();
+  vscode.window.registerTreeDataProvider('zekelinToolsCliActions', toolsCliProvider);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('dotnet-cleanup.clearNugetCache', () => {
@@ -136,6 +139,28 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('dotnet-cleanup.sortExplorerByDefault', () => sortExplorerByDefault())
   );
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.toolsCliReinstallLocal', () => {
+      return toolsCliReinstallLocal(outputChannel, false);
+    })
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.toolsCliReinstallLocalWithMcp', () => {
+      return toolsCliReinstallLocal(outputChannel, true);
+    })
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.toolsCliGenerateScript', () => {
+      return toolsCliGenerateScript(outputChannel);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.resendLastCommit', () => {
+      return resendLastCommit(outputChannel);
+    })
+  );
+
   // Seed the context key right now, and keep it in sync if the user (or
   // another extension, or settings sync) changes explorer.sortOrder later.
   updateExplorerSortContextKey();
@@ -158,6 +183,7 @@ export function activate(context: vscode.ExtensionContext) {
   applyPreferredWindowTitle(outputChannel);
 
   setupDevkitBuildContext(context);
+  setupToolsCliContext(context);
   setupGitChangedPathsContext(context);
   setupWipeTargetsContext(context);
   setupPublishTargetsContext(context);
@@ -170,6 +196,16 @@ function setupDevkitBuildContext(context: vscode.ExtensionContext) {
     const folders = vscode.workspace.workspaceFolders || [];
     const isDevkit = folders.some((f) => path.basename(f.uri.fsPath) === DEVKIT_FOLDER_NAME);
     vscode.commands.executeCommand('setContext', 'zekelin.isDevkitBuild', isDevkit);
+  };
+  update();
+  context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(update));
+}
+
+function setupToolsCliContext(context: vscode.ExtensionContext) {
+  const update = () => {
+    const folders = vscode.workspace.workspaceFolders || [];
+    const isToolsCli = folders.some((f) => path.basename(f.uri.fsPath) === TOOLS_CLI_FOLDER_NAME);
+    vscode.commands.executeCommand('setContext', 'zekelin.isToolsCli', isToolsCli);
   };
   update();
   context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(update));

@@ -15,6 +15,7 @@ These live under the default section and are available in any workspace:
 | **Clear NuGet Cache** | `dotnet nuget locals all --clear` — wipes every local NuGet cache. |
 | **Kill .NET Processes** | `taskkill /IM dotnet.exe /F` — ends every running `dotnet.exe`. |
 | **Kill VBCSCompiler** | `taskkill /IM VBCSCompiler.exe /F` — ends the stuck Roslyn compiler that often locks files in `bin/obj`. |
+| **Resend last commit** | `git commit --amend --no-edit --date=now` in the first workspace folder's repo — keeps the message, refreshes the timestamp. Modal confirmation shows the current SHA / subject / author / date before going through. Designed for local (not-yet-pushed) commits where you want the date to be "now"; if you've already pushed, you'll need `git push --force` afterwards. |
 
 ### Activity Bar view — `tools-devkit-build` section
 
@@ -47,6 +48,16 @@ All five stages run inside a single cancellable progress notification.
 5. Appends `dev-scripts/` to `<repo>/.gitignore` if it isn't already listed (idempotent — won't duplicate entries).
 
 After generation, the script can be invoked from any PowerShell terminal with `./dev-scripts/Install-TargetNugets.ps1` — it doesn't require the VS Code extension to be installed on the machine that runs it.
+
+### Activity Bar view — `tools-cli` section
+
+Appears only when the currently open workspace's root folder is named `tools-cli`. The extension carries the canonical `reinstall-local.ps1` content embedded inline — the three buttons do not depend on any file existing on disk.
+
+| Button | What it does |
+| --- | --- |
+| **Reinstall Local** | Writes the embedded script to a temp `.ps1` and runs `pwsh -NoProfile -ExecutionPolicy Bypass -File <temp> -RepoRoot "<workspace>"`. Streams output live; temp file is cleaned up afterwards. Works whether or not `<repo>/scripts/reinstall-local.ps1` exists on disk. |
+| **Reinstall Local (with MCP)** | Same as above with `-IncludeMcp` appended. |
+| **Generate Script** | Writes the same embedded content to `<repo>/scripts/reinstall-local.ps1` (creating `scripts/` if missing). Use this when you want a committed, standalone copy you can run outside VS Code — e.g. CI, agents, or other machines without the extension. The script accepts an optional `-RepoRoot` parameter; standalone runs fall back to `Split-Path -Parent $PSScriptRoot`. |
 
 ### Activity Bar view — `Dataverse` section
 
@@ -121,6 +132,10 @@ Every action is also directly invocable via `Ctrl+Shift+P`:
 | `dotnet-cleanup.sendToLocalNugetFeed` | Send to Local NuGet Feed |
 | `dotnet-cleanup.sortExplorerByModified` | Sort Explorer by modified date |
 | `dotnet-cleanup.sortExplorerByDefault` | Sort Explorer alphabetically |
+| `dotnet-cleanup.toolsCliReinstallLocal` | tools-cli: Reinstall Local |
+| `dotnet-cleanup.toolsCliReinstallLocalWithMcp` | tools-cli: Reinstall Local (with MCP) |
+| `dotnet-cleanup.toolsCliGenerateScript` | tools-cli: Generate Reinstall Script |
+| `dotnet-cleanup.resendLastCommit` | Resend last commit (refresh timestamp) |
 
 ## Explorer title-bar button: toggle sort by modified date
 

@@ -433,8 +433,8 @@ export async function dotnetWipe(
   for (const folder of targetFolders) {
     const binPath = path.join(folder, 'bin');
     const objPath = path.join(folder, 'obj');
-    if (fsFns.existsSync(binPath)) { foldersToDelete.push(`"${binPath}"`); }
-    if (fsFns.existsSync(objPath)) { foldersToDelete.push(`"${objPath}"`); }
+    if (fsFns.existsSync(binPath)) { foldersToDelete.push(binPath); }
+    if (fsFns.existsSync(objPath)) { foldersToDelete.push(objPath); }
   }
 
   if (foldersToDelete.length === 0) {
@@ -443,20 +443,68 @@ export async function dotnetWipe(
     return;
   }
 
-  const psCommand = `Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile -Command ${foldersToDelete.map(f => `Remove-Item -Recurse -Force ${f}`).join('; ')}'`;
+  // Build a temp .ps1 script with all the deletes. The previous implementation
+  // crammed every Remove-Item into a single -ArgumentList string, which blew
+  // past the ~8 191-char cmd.exe command-line limit when there were many
+  // targets (e.g. 700+ projects) and the elevated process never launched —
+  // the UAC prompt didn't even appear. With -File <script.ps1> the launcher
+  // command stays constant-length regardless of how many folders we process.
+  const tempScriptPath = path.join(os.tmpdir(), `zekelin-dotnet-wipe-${Date.now()}-${process.pid}.ps1`);
+  const tempLogPath = path.join(os.tmpdir(), `zekelin-dotnet-wipe-${Date.now()}-${process.pid}.log`);
+
+  const psSingleQuote = (s: string) => `'${s.replace(/'/g, "''")}'`;
+  const scriptLines: string[] = [
+    '$ErrorActionPreference = "Continue"',
+    `Start-Transcript -Path ${psSingleQuote(tempLogPath)} -Force | Out-Null`,
+    `Write-Host "Deleting ${foldersToDelete.length} folder(s)..."`,
+    ...foldersToDelete.map((f) =>
+      `Remove-Item -LiteralPath ${psSingleQuote(f)} -Recurse -Force -ErrorAction SilentlyContinue`
+    ),
+    'Write-Host "Done."',
+    'Stop-Transcript | Out-Null'
+  ];
+
+  try {
+    // Write UTF-8 with BOM so PowerShell 5.1 correctly interprets non-ASCII paths.
+    fs.writeFileSync(tempScriptPath, '﻿' + scriptLines.join('\r\n') + '\r\n', 'utf8');
+  } catch (err) {
+    outputChannel.appendLine(`Failed to write temp script: ${(err as Error).message}`);
+    vscode.window.showErrorMessage('Failed to prepare .NET Wipe script. See output for details.');
+    return;
+  }
 
   outputChannel.appendLine(`Deleting ${foldersToDelete.length} bin/obj folder(s) as admin ...`);
+  outputChannel.appendLine(`  script:  ${tempScriptPath}`);
+  outputChannel.appendLine(`  log:     ${tempLogPath}`);
+
+  // Outer launcher: a tiny, constant-length command that asks Windows to
+  // run the temp script elevated. -ArgumentList carries 5 short literal
+  // tokens — no per-folder content in here.
+  const escScript = tempScriptPath.replace(/'/g, "''");
+  const launchCmd = `Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${escScript}'`;
 
   return new Promise((resolve) => {
-    execFn(`powershell -NoProfile -Command "${psCommand}"`, (error, stdout, stderr) => {
+    execFn(`powershell -NoProfile -Command "${launchCmd}"`, (error, stdout, stderr) => {
+      // Surface whatever the elevated transcript captured.
+      try {
+        if (fs.existsSync(tempLogPath)) {
+          const log = fs.readFileSync(tempLogPath, 'utf8').replace(/^﻿/, '').trimEnd();
+          if (log.length > 0) { outputChannel.appendLine(log); }
+        }
+      } catch { /* ignore log read errors */ }
+
+      // Clean up temp artefacts.
+      try { fs.unlinkSync(tempScriptPath); } catch { /* ignore */ }
+      try { fs.unlinkSync(tempLogPath); } catch { /* ignore */ }
+
       if (error) {
         outputChannel.appendLine(`Error: ${error.message}`);
         if (stderr) { outputChannel.appendLine(stderr); }
         vscode.window.showErrorMessage('Failed to delete bin/obj folders. See output for details.');
       } else {
         if (stdout) { outputChannel.appendLine(stdout); }
-        outputChannel.appendLine('bin/ and obj/ folders deleted successfully.');
-        vscode.window.showInformationMessage('.NET Wipe completed — bin/ and obj/ deleted.');
+        outputChannel.appendLine(`bin/ and obj/ folders deletion completed (${foldersToDelete.length} target(s)).`);
+        vscode.window.showInformationMessage(`.NET Wipe completed — ${foldersToDelete.length} folder(s) processed.`);
       }
       resolve();
     });
@@ -1676,6 +1724,228 @@ export async function sendToLocalNugetFeed(
   vscode.window.showInformationMessage(`Sent "${path.basename(pkgPath)}" to ${feedPath}.`);
 }
 
+// ─── tools-cli workspace actions ──────────────────────────────────────────────
+//
+// The extension is the source of truth for this script — embedded below. The
+// run buttons write a fresh copy to a temp .ps1 every time they're clicked, so
+// they work regardless of whether <repo>/scripts/reinstall-local.ps1 exists.
+// "Generate Script" writes the same content to that canonical path for users
+// who want a standalone copy in their repo.
+
+export const TOOLS_CLI_FOLDER_NAME = 'tools-cli';
+const TOOLS_CLI_REINSTALL_SCRIPT_REL = path.join('scripts', 'reinstall-local.ps1');
+
+// The script accepts an optional -RepoRoot parameter — the extension passes
+// the actual workspace path when running from a temp file (where $PSScriptRoot
+// would otherwise resolve to the OS temp dir). Standalone runs leave -RepoRoot
+// blank and fall back to $PSScriptRoot's parent.
+const TOOLS_CLI_REINSTALL_SCRIPT_CONTENT = `#Requires -Version 7
+<#
+.SYNOPSIS
+    Removes the globally installed TALXIS CLI and installs the local build
+    from this repository instead.
+
+.DESCRIPTION
+    Packs src/TALXIS.CLI under a unique dev version (so NuGet can't serve a
+    stale cached copy), uninstalls any existing global 'txc', then installs the
+    freshly packed nupkg. Pass -IncludeMcp to do the same for 'txc-mcp'.
+
+.EXAMPLE
+    ./scripts/reinstall-local.ps1
+    ./scripts/reinstall-local.ps1 -IncludeMcp -Configuration Debug
+#>
+[CmdletBinding()]
+param(
+    [string]$Configuration = 'Release',
+    [switch]$IncludeMcp,
+    # When invoked by the Zekelin .NET Tools VS Code extension via a temp .ps1,
+    # the extension passes the actual tools-cli workspace path here.
+    # Standalone runs (from scripts/) leave this blank and the script falls
+    # back to its own location's parent.
+    [string]$RepoRoot
+)
+
+$ErrorActionPreference = 'Stop'
+
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent $PSScriptRoot
+}
+$repoRoot  = $RepoRoot
+$nupkgDir  = 'C:\\NuGetLocal'
+$cliProj   = Join-Path $repoRoot 'src/TALXIS.CLI/TALXIS.CLI.csproj'
+$mcpProj   = Join-Path $repoRoot 'src/TALXIS.CLI.MCP/TALXIS.CLI.MCP.csproj'
+
+# Unique prerelease version per run -> bypasses the NuGet global-packages cache.
+$version = '0.0.0-local.{0}' -f (Get-Date -Format 'yyyyMMddHHmmss')
+
+function Invoke-Reinstall {
+    param(
+        [string]$PackageId,
+        [string]$ProjectPath,
+        [string]$CommandName
+    )
+
+    Write-Host "==> $PackageId ($CommandName)" -ForegroundColor Cyan
+
+    # 1. Uninstall the current global tool (ignore 'not installed').
+    Write-Host "    uninstalling existing global tool..."
+    try { dotnet tool uninstall --global $PackageId 2>&1 | Out-Null }
+    catch { Write-Host "    (was not installed)" -ForegroundColor DarkGray }
+
+    # 2. Pack the local project under the unique dev version.
+    Write-Host "    packing $version ..."
+    # PackageVersion (not Version) drives the nupkg name and is hard-set in
+    # src/Directory.Build.props, so it must be overridden explicitly here.
+    dotnet pack $ProjectPath -c $Configuration -o $nupkgDir "-p:PackageVersion=$version" "-p:Version=$version" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "dotnet pack failed for $PackageId" }
+
+    # 3. Install the freshly packed nupkg from the local folder.
+    Write-Host "    installing from $nupkgDir ..."
+    dotnet tool install --global --add-source $nupkgDir --version $version $PackageId
+    if ($LASTEXITCODE -ne 0) { throw "dotnet tool install failed for $PackageId" }
+
+    Write-Host "    done -> $CommandName $version" -ForegroundColor Green
+}
+
+# Drop only our previous local builds; leave any other packages in the shared
+# C:\\NuGetLocal feed untouched.
+New-Item -ItemType Directory -Force -Path $nupkgDir | Out-Null
+Remove-Item (Join-Path $nupkgDir 'TALXIS.CLI.*.nupkg') -Force -ErrorAction SilentlyContinue
+
+Invoke-Reinstall -PackageId 'TALXIS.CLI' -ProjectPath $cliProj -CommandName 'txc'
+if ($IncludeMcp) {
+    Invoke-Reinstall -PackageId 'TALXIS.CLI.MCP' -ProjectPath $mcpProj -CommandName 'txc-mcp'
+}
+
+Write-Host ""
+Write-Host "Installed tools:" -ForegroundColor Cyan
+dotnet tool list --global | Select-String -Pattern 'talxis'
+`;
+
+export function getToolsCliRoot(): string | undefined {
+  for (const folder of vscode.workspace.workspaceFolders || []) {
+    if (path.basename(folder.uri.fsPath) === TOOLS_CLI_FOLDER_NAME) {
+      return folder.uri.fsPath;
+    }
+  }
+  return undefined;
+}
+
+async function runPowerShellScript(
+  scriptPath: string,
+  extraArgs: string[],
+  title: string,
+  outputChannel: vscode.OutputChannel,
+  spawnFn: SpawnFn
+): Promise<boolean> {
+  return await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title,
+      cancellable: false
+    },
+    () =>
+      new Promise<boolean>((resolve) => {
+        const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...extraArgs];
+        const printable = `pwsh ${args.map(quoteShellArg).join(' ')}`;
+        outputChannel.appendLine(`Running: ${printable}`);
+
+        const child = spawnFn('pwsh', args.map(quoteShellArg), { shell: true });
+        const stream = (chunk: Buffer | string) => {
+          const text = chunk.toString();
+          for (const line of text.split(/\r?\n/)) {
+            if (line.length > 0) { outputChannel.appendLine(line); }
+          }
+        };
+        child.stdout?.on('data', stream);
+        child.stderr?.on('data', stream);
+        child.on('error', (err) => {
+          outputChannel.appendLine(`Error: ${err.message}`);
+          resolve(false);
+        });
+        child.on('close', (code) => {
+          if (code === 0) {
+            outputChannel.appendLine(`Done.`);
+            resolve(true);
+          } else {
+            outputChannel.appendLine(`Script exited with code ${code}.`);
+            resolve(false);
+          }
+        });
+      })
+  );
+}
+
+export async function toolsCliReinstallLocal(
+  outputChannel: vscode.OutputChannel,
+  includeMcp: boolean,
+  spawnFn: SpawnFn = defaultSpawn as any
+): Promise<void> {
+  const root = getToolsCliRoot();
+  if (!root) {
+    vscode.window.showErrorMessage(`No workspace folder named "${TOOLS_CLI_FOLDER_NAME}" is open.`);
+    return;
+  }
+
+  outputChannel.show(true);
+
+  // Write the embedded script to a temp .ps1 — this means the buttons work
+  // even if <repo>/scripts/reinstall-local.ps1 has been deleted or never
+  // existed in this branch. -RepoRoot is passed explicitly so $PSScriptRoot
+  // (which would resolve to %TEMP%) doesn't matter.
+  const tempScript = path.join(os.tmpdir(), `zekelin-tools-cli-reinstall-${Date.now()}-${process.pid}.ps1`);
+  try {
+    fs.writeFileSync(tempScript, '﻿' + TOOLS_CLI_REINSTALL_SCRIPT_CONTENT, 'utf8');
+  } catch (err) {
+    outputChannel.appendLine(`Failed to write temp script: ${(err as Error).message}`);
+    vscode.window.showErrorMessage('Failed to prepare Reinstall Local script.');
+    return;
+  }
+
+  const extraArgs = ['-RepoRoot', root];
+  if (includeMcp) { extraArgs.push('-IncludeMcp'); }
+  const title = includeMcp ? `Reinstall Local (with MCP)` : `Reinstall Local`;
+
+  try {
+    const ok = await runPowerShellScript(tempScript, extraArgs, title, outputChannel, spawnFn);
+    if (ok) {
+      vscode.window.showInformationMessage(`${title} completed.`);
+    } else {
+      vscode.window.showErrorMessage(`${title} failed. See output for details.`);
+    }
+  } finally {
+    try { fs.unlinkSync(tempScript); } catch { /* ignore cleanup error */ }
+  }
+}
+
+export async function toolsCliGenerateScript(
+  outputChannel: vscode.OutputChannel
+): Promise<void> {
+  const root = getToolsCliRoot();
+  if (!root) {
+    vscode.window.showErrorMessage(`No workspace folder named "${TOOLS_CLI_FOLDER_NAME}" is open.`);
+    return;
+  }
+
+  const targetPath = path.join(root, TOOLS_CLI_REINSTALL_SCRIPT_REL);
+  const targetDir = path.dirname(targetPath);
+
+  try {
+    if (!fs.existsSync(targetDir)) { fs.mkdirSync(targetDir, { recursive: true }); }
+    // UTF-8 BOM so PowerShell 5.1 reads non-ASCII chars correctly if anyone
+    // runs the standalone copy on a Windows PowerShell that defaults to ANSI.
+    fs.writeFileSync(targetPath, '﻿' + TOOLS_CLI_REINSTALL_SCRIPT_CONTENT, 'utf8');
+  } catch (err) {
+    outputChannel.appendLine(`Failed to write ${targetPath}: ${(err as Error).message}`);
+    vscode.window.showErrorMessage('Failed to generate reinstall-local.ps1.');
+    return;
+  }
+
+  outputChannel.show(true);
+  outputChannel.appendLine(`Wrote ${targetPath}`);
+  vscode.window.showInformationMessage(`Generated ${TOOLS_CLI_REINSTALL_SCRIPT_REL}.`);
+}
+
 // ─── Explorer sort toggle (alphabetical ↔ modified date) ──────────────────────
 // Both commands write to user-global explorer.sortOrder; the context key
 // zekelin.explorerSortByModified is what swaps which of the two title-bar
@@ -1700,4 +1970,68 @@ export async function sortExplorerByDefault(): Promise<void> {
 export function updateExplorerSortContextKey(): void {
   const cur = vscode.workspace.getConfiguration('explorer').get<string>('sortOrder');
   vscode.commands.executeCommand('setContext', 'zekelin.explorerSortByModified', cur === 'modified');
+}
+
+// ─── Resend last commit (refresh timestamp) ────────────────────────────────────
+// Runs `git commit --amend --no-edit --date=now` in the first workspace's repo.
+// Designed for not-yet-pushed commits where the user wants the timestamp to be
+// "now" without changing the message. Since amend rewrites the commit SHA, this
+// is safe locally but would require --force on push if already published.
+
+export async function resendLastCommit(
+  outputChannel: vscode.OutputChannel,
+  runner: GitRunner = defaultGitRunner,
+  confirm: (msg: string, modal: boolean, ...actions: string[]) => Thenable<string | undefined> =
+    (msg, modal, ...actions) => vscode.window.showWarningMessage(msg, { modal }, ...actions)
+): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    vscode.window.showErrorMessage('Open a workspace folder with a git repository first.');
+    return;
+  }
+
+  const seed = folders[0].uri.fsPath;
+  const rootRes = await runner(['rev-parse', '--show-toplevel'], seed);
+  if (rootRes.error) {
+    vscode.window.showErrorMessage('Not a git repository (or no commits yet).');
+    return;
+  }
+  const repoRoot = rootRes.stdout.trim();
+
+  // Grab last commit info to show in the confirmation prompt.
+  const info = await runner(['log', '-1', '--format=%h %s%n%an <%ae>%n%ad', '--date=iso'], repoRoot);
+  if (info.error) {
+    outputChannel.show(true);
+    outputChannel.appendLine(info.stderr || info.error.message);
+    vscode.window.showErrorMessage('No commits to amend in this repository.');
+    return;
+  }
+  const lines = info.stdout.split(/\r?\n/);
+  const [shaAndSubject = '', authorLine = '', dateLine = ''] = lines;
+
+  const choice = await confirm(
+    `Replace last commit with a new one (same message, fresh timestamp)?\n\n` +
+    `${shaAndSubject}\n${authorLine}\n${dateLine}\n\n` +
+    `Runs: git commit --amend --no-edit --date=now\n` +
+    `If you've already pushed this commit, you'll need git push --force afterwards.`,
+    true,
+    'Replace'
+  );
+  if (choice !== 'Replace') { return; }
+
+  outputChannel.show(true);
+  outputChannel.appendLine(`Repo: ${repoRoot}`);
+  outputChannel.appendLine(`Running: git commit --amend --no-edit --date=now`);
+  const res = await runner(['commit', '--amend', '--no-edit', '--date=now'], repoRoot);
+  if (res.stdout) { outputChannel.appendLine(res.stdout.trimEnd()); }
+  if (res.stderr) { outputChannel.appendLine(res.stderr.trimEnd()); }
+  if (res.error) {
+    vscode.window.showErrorMessage('git commit --amend failed. See output for details.');
+    return;
+  }
+
+  // Show new SHA so the user can see the commit was rewritten.
+  const after = await runner(['log', '-1', '--format=%h %s'], repoRoot);
+  if (after.stdout) { outputChannel.appendLine(`New commit: ${after.stdout.trim()}`); }
+  vscode.window.showInformationMessage('Last commit replaced — timestamp refreshed.');
 }

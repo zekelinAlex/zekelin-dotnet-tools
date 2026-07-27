@@ -15,7 +15,8 @@ export class CleanupActionsProvider implements vscode.TreeDataProvider<CleanupAc
   private actions: CleanupActionItem[] = [
     new CleanupActionItem('Clear NuGet Cache', 'dotnet-cleanup.clearNugetCache'),
     new CleanupActionItem('Kill .NET Processes', 'dotnet-cleanup.killDotnetProcesses'),
-    new CleanupActionItem('Kill VBCSCompiler', 'dotnet-cleanup.killVBCSCompiler')
+    new CleanupActionItem('Kill VBCSCompiler', 'dotnet-cleanup.killVBCSCompiler'),
+    new CleanupActionItem('Resend last commit', 'dotnet-cleanup.resendLastCommit')
   ];
 
   getTreeItem(element: CleanupActionItem): vscode.TreeItem {
@@ -31,6 +32,22 @@ export class DevkitBuildActionsProvider implements vscode.TreeDataProvider<Clean
   private actions: CleanupActionItem[] = [
     new CleanupActionItem('Install targets Nugets', 'dotnet-cleanup.installTargetNugets'),
     new CleanupActionItem('Generate Install Script', 'dotnet-cleanup.generateInstallScript')
+  ];
+
+  getTreeItem(element: CleanupActionItem): vscode.TreeItem {
+    return element;
+  }
+
+  getChildren(): CleanupActionItem[] {
+    return this.actions;
+  }
+}
+
+export class ToolsCliActionsProvider implements vscode.TreeDataProvider<CleanupActionItem> {
+  private actions: CleanupActionItem[] = [
+    new CleanupActionItem('Reinstall Local', 'dotnet-cleanup.toolsCliReinstallLocal'),
+    new CleanupActionItem('Reinstall Local (with MCP)', 'dotnet-cleanup.toolsCliReinstallLocalWithMcp'),
+    new CleanupActionItem('Generate Script', 'dotnet-cleanup.toolsCliGenerateScript')
   ];
 
   getTreeItem(element: CleanupActionItem): vscode.TreeItem {
