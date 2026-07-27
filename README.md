@@ -136,6 +136,7 @@ Every action is also directly invocable via `Ctrl+Shift+P`:
 | `dotnet-cleanup.toolsCliReinstallLocalWithMcp` | tools-cli: Reinstall Local (with MCP) |
 | `dotnet-cleanup.toolsCliGenerateScript` | tools-cli: Generate Reinstall Script |
 | `dotnet-cleanup.resendLastCommit` | Resend last commit (refresh timestamp) |
+| `dotnet-cleanup.combineCommits` | Combine commits (squash into first) |
 
 ## Explorer title-bar button: toggle sort by modified date
 

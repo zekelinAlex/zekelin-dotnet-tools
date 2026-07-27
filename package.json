@@ -154,6 +154,10 @@
       {
         "command": "dotnet-cleanup.resendLastCommit",
         "title": "Resend last commit (refresh timestamp)"
+      },
+      {
+        "command": "dotnet-cleanup.combineCommits",
+        "title": "Combine commits (squash into first)"
       }
     ],
     "menus": {

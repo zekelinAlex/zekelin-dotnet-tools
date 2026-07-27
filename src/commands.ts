@@ -2035,3 +2035,117 @@ export async function resendLastCommit(
   if (after.stdout) { outputChannel.appendLine(`New commit: ${after.stdout.trim()}`); }
   vscode.window.showInformationMessage('Last commit replaced — timestamp refreshed.');
 }
+
+// ─── Combine commits (squash into first) ───────────────────────────────────────
+// Squashes every commit ahead of main/master/upstream, plus any uncommitted
+// changes, into a single commit that reuses the FIRST squashed commit's message.
+// Implemented as: git reset --soft <base> && git add -A && git commit -m <msg>.
+// Rewrites history, so already-pushed commits need git push --force afterwards.
+
+const COMBINE_BASE_REFS = ['origin/main', 'origin/master', 'main', 'master', '@{upstream}'];
+
+export async function combineCommits(
+  outputChannel: vscode.OutputChannel,
+  runner: GitRunner = defaultGitRunner,
+  confirm: (msg: string, modal: boolean, ...actions: string[]) => Thenable<string | undefined> =
+    (msg, modal, ...actions) => vscode.window.showWarningMessage(msg, { modal }, ...actions)
+): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    vscode.window.showErrorMessage('Open a workspace folder with a git repository first.');
+    return;
+  }
+
+  const seed = folders[0].uri.fsPath;
+  const rootRes = await runner(['rev-parse', '--show-toplevel'], seed);
+  if (rootRes.error) {
+    vscode.window.showErrorMessage('Not a git repository (or no commits yet).');
+    return;
+  }
+  const repoRoot = rootRes.stdout.trim();
+
+  const headRes = await runner(['rev-parse', 'HEAD'], repoRoot);
+  if (headRes.error) {
+    vscode.window.showErrorMessage('No commits in this repository yet.');
+    return;
+  }
+  const head = headRes.stdout.trim();
+
+  let base = '';
+  let baseRef = '';
+  for (const ref of COMBINE_BASE_REFS) {
+    const mb = await runner(['merge-base', 'HEAD', ref], repoRoot);
+    if (mb.error) continue;
+    const sha = mb.stdout.trim();
+    if (sha && sha !== head) { base = sha; baseRef = ref; break; }
+  }
+  if (!base) {
+    vscode.window.showErrorMessage('Combine commits: no commits ahead of main/master/upstream — nothing to squash.');
+    return;
+  }
+
+  const countRes = await runner(['rev-list', '--count', `${base}..HEAD`], repoRoot);
+  const count = parseInt(countRes.stdout.trim(), 10) || 0;
+  const statusRes = await runner(['status', '--porcelain'], repoRoot);
+  const dirty = statusRes.stdout.trim().length > 0;
+  if (count <= 1 && !dirty) {
+    vscode.window.showInformationMessage('Only one commit ahead and no uncommitted changes — nothing to combine.');
+    return;
+  }
+
+  const firstRes = await runner(['rev-list', '--reverse', `${base}..HEAD`], repoRoot);
+  const firstSha = (firstRes.stdout.split(/\r?\n/)[0] ?? '').trim();
+  const msgRes = await runner(['log', '-1', '--format=%B', firstSha], repoRoot);
+  if (msgRes.error || !msgRes.stdout.trim()) {
+    vscode.window.showErrorMessage('Combine commits: could not read the first commit message.');
+    return;
+  }
+  const message = msgRes.stdout.replace(/\r\n/g, '\n').trimEnd();
+  const subject = message.split('\n')[0];
+
+  const branchRes = await runner(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot);
+  const branch = branchRes.stdout.trim();
+
+  const choice = await confirm(
+    `Squash ${count} commit(s) on "${branch}"${dirty ? ' plus uncommitted changes' : ''} into one commit?\n\n` +
+    `Message (from first commit): ${subject}\n` +
+    `Base: ${baseRef} (${base.slice(0, 7)})\n\n` +
+    `If any of these commits are already pushed, you'll need git push --force afterwards.`,
+    true,
+    'Combine'
+  );
+  if (choice !== 'Combine') return;
+
+  outputChannel.show(true);
+  outputChannel.appendLine(`Repo: ${repoRoot}`);
+  outputChannel.appendLine(`Old HEAD: ${head} (recover with: git reset ${head.slice(0, 7)})`);
+
+  outputChannel.appendLine(`Running: git reset --soft ${base.slice(0, 7)}`);
+  const resetRes = await runner(['reset', '--soft', base], repoRoot);
+  if (resetRes.stderr) { outputChannel.appendLine(resetRes.stderr.trimEnd()); }
+  if (resetRes.error) {
+    vscode.window.showErrorMessage('git reset --soft failed. See output for details.');
+    return;
+  }
+
+  outputChannel.appendLine('Running: git add -A');
+  const addRes = await runner(['add', '-A'], repoRoot);
+  if (addRes.stderr) { outputChannel.appendLine(addRes.stderr.trimEnd()); }
+  if (addRes.error) {
+    vscode.window.showErrorMessage(`git add -A failed. Recover with: git reset ${head.slice(0, 7)}`);
+    return;
+  }
+
+  outputChannel.appendLine(`Running: git commit -m "${subject}"`);
+  const commitRes = await runner(['commit', '-m', message], repoRoot);
+  if (commitRes.stdout) { outputChannel.appendLine(commitRes.stdout.trimEnd()); }
+  if (commitRes.stderr) { outputChannel.appendLine(commitRes.stderr.trimEnd()); }
+  if (commitRes.error) {
+    vscode.window.showErrorMessage(`git commit failed. Recover with: git reset ${head.slice(0, 7)}`);
+    return;
+  }
+
+  const after = await runner(['log', '-1', '--format=%h %s'], repoRoot);
+  if (after.stdout) { outputChannel.appendLine(`New commit: ${after.stdout.trim()}`); }
+  vscode.window.showInformationMessage(`Combined ${count} commit(s) into: ${subject}`);
+}
