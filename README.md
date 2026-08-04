@@ -116,6 +116,7 @@ Every action is also directly invocable via `Ctrl+Shift+P`:
 | `dotnet-cleanup.killDotnetProcesses` | Kill .NET Processes |
 | `dotnet-cleanup.killVBCSCompiler` | Kill VBCSCompiler |
 | `dotnet-cleanup.dotnetWipe` | .NET Wipe |
+| `dotnet-cleanup.gitWipe` | Git Wipe (delete gitignored + empty folders) |
 | `dotnet-cleanup.dotnetPublish` | Publish |
 | `dotnet-cleanup.gitPush` | Push |
 | `dotnet-cleanup.gitDiscard` | Discard |

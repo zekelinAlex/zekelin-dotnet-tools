@@ -511,6 +511,116 @@ export async function dotnetWipe(
   });
 }
 
+// ─── Git Wipe ──────────────────────────────────────────────────────────────────
+// Deletes everything .gitignore matches under the selected folder (recursively,
+// nested .gitignore files included) via `git clean -Xdf`, then sweeps away any
+// directories left empty. Dry-runs first so the confirmation shows real counts.
+
+function removeEmptyDirs(root: string): number {
+  let removed = 0;
+  const walk = (dir: string): boolean => {
+    let entries: string[];
+    try { entries = fs.readdirSync(dir); } catch { return false; }
+    let empty = true;
+    for (const entry of entries) {
+      if (entry === '.git') { empty = false; continue; }
+      const full = path.join(dir, entry);
+      let st: fs.Stats;
+      try { st = fs.statSync(full); } catch { empty = false; continue; }
+      if (!st.isDirectory()) { empty = false; continue; }
+      if (walk(full)) {
+        try { fs.rmdirSync(full); removed++; } catch { empty = false; }
+      } else {
+        empty = false;
+      }
+    }
+    return empty;
+  };
+  walk(root);
+  return removed;
+}
+
+export async function gitWipe(
+  resourceUri: vscode.Uri | undefined,
+  outputChannel: vscode.OutputChannel,
+  runner: GitRunner = defaultGitRunner,
+  confirm: (msg: string, modal: boolean, ...actions: string[]) => Thenable<string | undefined> =
+    (msg, modal, ...actions) => vscode.window.showWarningMessage(msg, { modal }, ...actions)
+): Promise<void> {
+  const target = resourceUri?.fsPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!target) {
+    vscode.window.showErrorMessage('Open a workspace folder first.');
+    return;
+  }
+
+  let st: fs.Stats;
+  try { st = fs.statSync(target); } catch {
+    vscode.window.showErrorMessage(`Git Wipe: path not found: ${target}`);
+    return;
+  }
+  if (!st.isDirectory()) {
+    vscode.window.showWarningMessage('Git Wipe is only available for folders.');
+    return;
+  }
+
+  const rootRes = await runner(['rev-parse', '--show-toplevel'], target);
+  if (rootRes.error) {
+    vscode.window.showErrorMessage('Git Wipe: this folder is not inside a git repository.');
+    return;
+  }
+
+  const dryRes = await runner(['clean', '-Xdn', '--', '.'], target);
+  if (dryRes.error) {
+    outputChannel.show(true);
+    outputChannel.appendLine(dryRes.stderr || dryRes.error.message);
+    vscode.window.showErrorMessage('Git Wipe: git clean dry run failed. See output for details.');
+    return;
+  }
+  const wouldRemove = dryRes.stdout.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (wouldRemove.length === 0) {
+    const emptied = removeEmptyDirs(target);
+    vscode.window.showInformationMessage(
+      emptied > 0
+        ? `Git Wipe: nothing gitignored to delete — removed ${emptied} empty folder(s).`
+        : 'Git Wipe: nothing to delete.'
+    );
+    return;
+  }
+
+  const preview = wouldRemove.slice(0, 10).map((l) => l.replace(/^Would remove /, '  ')).join('\n');
+  const more = wouldRemove.length > 10 ? `\n  … and ${wouldRemove.length - 10} more` : '';
+  const choice = await confirm(
+    `Git Wipe: delete ${wouldRemove.length} gitignored item(s) under\n${target}?\n\n` +
+    `${preview}${more}\n\n` +
+    `Empty folders left behind will be removed too. This cannot be undone.`,
+    true,
+    'Delete'
+  );
+  if (choice !== 'Delete') return;
+
+  outputChannel.show(true);
+  outputChannel.appendLine(`Git Wipe: ${target}`);
+
+  await killVBCSCompiler(outputChannel);
+
+  outputChannel.appendLine('Running: git clean -Xdf -- .');
+  const cleanRes = await runner(['clean', '-Xdf', '--', '.'], target);
+  if (cleanRes.stdout) { outputChannel.appendLine(cleanRes.stdout.trimEnd()); }
+  if (cleanRes.stderr) { outputChannel.appendLine(cleanRes.stderr.trimEnd()); }
+  if (cleanRes.error) {
+    vscode.window.showErrorMessage('Git Wipe: git clean failed. See output for details.');
+    return;
+  }
+
+  const emptied = removeEmptyDirs(target);
+  if (emptied > 0) { outputChannel.appendLine(`Removed ${emptied} empty folder(s).`); }
+
+  vscode.window.showInformationMessage(
+    `Git Wipe completed — ${wouldRemove.length} gitignored item(s)` +
+    (emptied > 0 ? ` and ${emptied} empty folder(s)` : '') + ' deleted.'
+  );
+}
+
 function stripJsonComments(text: string): string {
   let result = text.replace(/\/\*[\s\S]*?\*\//g, '');
   result = result.split('\n').map(line => {

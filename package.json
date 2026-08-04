@@ -158,6 +158,10 @@
       {
         "command": "dotnet-cleanup.combineCommits",
         "title": "Combine commits (squash into first)"
+      },
+      {
+        "command": "dotnet-cleanup.gitWipe",
+        "title": "Git Wipe"
       }
     ],
     "menus": {
@@ -178,9 +182,14 @@
           "group": "dotnet-cleanup@1"
         },
         {
+          "command": "dotnet-cleanup.gitWipe",
+          "when": "resourceScheme == file && explorerResourceIsFolder",
+          "group": "dotnet-cleanup@2"
+        },
+        {
           "command": "dotnet-cleanup.generateSnippetPrefixes",
           "when": "explorerResourceIsFolder && resourceFilename == .vscode",
-          "group": "dotnet-cleanup@2"
+          "group": "dotnet-cleanup@3"
         },
         {
           "command": "dotnet-cleanup.gitPush",
