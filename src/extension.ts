@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { CleanupActionsProvider, DevkitBuildActionsProvider, DataverseActionsProvider, ToolsCliActionsProvider } from './treeViewProvider';
-import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, dataverseSolutionUnpack, dataverseSolutionImport, dataversePackageDeploy, addDataverseEnvironment, createDataverseEnvironment, deleteDataverseEnvironment, revealDataverseEnvironmentsConfig, migrateEnvironmentsToGlobalIfNeeded, openInNewWindow, sendToLocalNugetFeed, sortExplorerByModified, sortExplorerByDefault, updateExplorerSortContextKey, toolsCliReinstallLocal, toolsCliGenerateScript, resendLastCommit, combineCommits, gitWipe, DEVKIT_FOLDER_NAME, TOOLS_CLI_FOLDER_NAME } from './commands';
+import { CleanupActionsProvider, DevkitBuildActionsProvider, PlatformMetadataActionsProvider, DataverseActionsProvider, ToolsCliActionsProvider } from './treeViewProvider';
+import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, dataverseSolutionUnpack, dataverseSolutionImport, dataversePackageDeploy, addDataverseEnvironment, createDataverseEnvironment, deleteDataverseEnvironment, revealDataverseEnvironmentsConfig, migrateEnvironmentsToGlobalIfNeeded, openInNewWindow, sendToLocalNugetFeed, sortExplorerByModified, sortExplorerByDefault, updateExplorerSortContextKey, toolsCliReinstallLocal, toolsCliGenerateScript, resendLastCommit, combineCommits, gitWipe, platformMetadataInstallNugets, platformMetadataGenerateScript, DEVKIT_FOLDER_NAME, PLATFORM_METADATA_FOLDER_NAME, TOOLS_CLI_FOLDER_NAME } from './commands';
 
 export function activate(context: vscode.ExtensionContext) {
   const outputChannel = vscode.window.createOutputChannel('Zekelin .NET Tools');
@@ -11,6 +11,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   const devkitProvider = new DevkitBuildActionsProvider();
   vscode.window.registerTreeDataProvider('zekelinDevkitBuildActions', devkitProvider);
+
+  const platformMetadataProvider = new PlatformMetadataActionsProvider();
+  vscode.window.registerTreeDataProvider('zekelinPlatformMetadataActions', platformMetadataProvider);
 
   const dataverseProvider = new DataverseActionsProvider();
   vscode.window.registerTreeDataProvider('zekelinDataverseActions', dataverseProvider);
@@ -81,6 +84,18 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('dotnet-cleanup.generateInstallScript', () => {
       return generateInstallScript(context, outputChannel);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.platformMetadataInstallNugets', () => {
+      return platformMetadataInstallNugets(outputChannel);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.platformMetadataGenerateScript', () => {
+      return platformMetadataGenerateScript(context, outputChannel);
     })
   );
 
@@ -195,6 +210,7 @@ export function activate(context: vscode.ExtensionContext) {
   applyPreferredWindowTitle(outputChannel);
 
   setupDevkitBuildContext(context);
+  setupPlatformMetadataContext(context);
   setupToolsCliContext(context);
   setupGitChangedPathsContext(context);
   setupWipeTargetsContext(context);
@@ -208,6 +224,16 @@ function setupDevkitBuildContext(context: vscode.ExtensionContext) {
     const folders = vscode.workspace.workspaceFolders || [];
     const isDevkit = folders.some((f) => path.basename(f.uri.fsPath) === DEVKIT_FOLDER_NAME);
     vscode.commands.executeCommand('setContext', 'zekelin.isDevkitBuild', isDevkit);
+  };
+  update();
+  context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(update));
+}
+
+function setupPlatformMetadataContext(context: vscode.ExtensionContext) {
+  const update = () => {
+    const folders = vscode.workspace.workspaceFolders || [];
+    const isPlatformMetadata = folders.some((f) => path.basename(f.uri.fsPath) === PLATFORM_METADATA_FOLDER_NAME);
+    vscode.commands.executeCommand('setContext', 'zekelin.isPlatformMetadata', isPlatformMetadata);
   };
   update();
   context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(update));

@@ -36,6 +36,11 @@
           "when": "zekelin.isDevkitBuild"
         },
         {
+          "id": "zekelinPlatformMetadataActions",
+          "name": "platform-metadata",
+          "when": "zekelin.isPlatformMetadata"
+        },
+        {
           "id": "zekelinDataverseActions",
           "name": "Dataverse"
         },
@@ -162,6 +167,14 @@
       {
         "command": "dotnet-cleanup.gitWipe",
         "title": "Git Wipe"
+      },
+      {
+        "command": "dotnet-cleanup.platformMetadataInstallNugets",
+        "title": "platform-metadata: Install targets Nugets"
+      },
+      {
+        "command": "dotnet-cleanup.platformMetadataGenerateScript",
+        "title": "platform-metadata: Generate Install Script"
       }
     ],
     "menus": {

@@ -122,6 +122,8 @@ Every action is also directly invocable via `Ctrl+Shift+P`:
 | `dotnet-cleanup.gitDiscard` | Discard |
 | `dotnet-cleanup.installTargetNugets` | Install targets Nugets |
 | `dotnet-cleanup.generateInstallScript` | Generate Install Script |
+| `dotnet-cleanup.platformMetadataInstallNugets` | platform-metadata: Install targets Nugets |
+| `dotnet-cleanup.platformMetadataGenerateScript` | platform-metadata: Generate Install Script |
 | `dotnet-cleanup.generateSnippetPrefixes` | Generate Snippet Prefixes |
 | `dotnet-cleanup.dataverseSolutionUnpack` | Dataverse Solutions unpack |
 | `dotnet-cleanup.dataverseSolutionImport` | Dataverse Solutions Import |

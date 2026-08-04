@@ -746,12 +746,22 @@ export function killDotnetProcesses(
 }
 
 export const DEVKIT_FOLDER_NAME = 'tools-devkit-build';
+export const PLATFORM_METADATA_FOLDER_NAME = 'platform-metadata';
 const DEFAULT_LOCAL_FEED = 'C:\\NuGetLocal';
 const DEVKIT_CONFIG_FILE = 'zekelin-dotnet-tools.json';
 
 export function getDevkitBuildRoot(): string | undefined {
   for (const folder of vscode.workspace.workspaceFolders || []) {
     if (path.basename(folder.uri.fsPath) === DEVKIT_FOLDER_NAME) {
+      return folder.uri.fsPath;
+    }
+  }
+  return undefined;
+}
+
+export function getPlatformMetadataRoot(): string | undefined {
+  for (const folder of vscode.workspace.workspaceFolders || []) {
+    if (path.basename(folder.uri.fsPath) === PLATFORM_METADATA_FOLDER_NAME) {
       return folder.uri.fsPath;
     }
   }
@@ -1424,14 +1434,34 @@ export async function generateInstallScript(
     vscode.window.showErrorMessage(`No workspace folder named "${DEVKIT_FOLDER_NAME}" is open.`);
     return;
   }
+  return generateInstallScriptCore(devkitRoot, [], context, outputChannel);
+}
 
+export async function platformMetadataGenerateScript(
+  context: vscode.ExtensionContext,
+  outputChannel: vscode.OutputChannel
+): Promise<void> {
+  const root = getPlatformMetadataRoot();
+  if (!root) {
+    vscode.window.showErrorMessage(`No workspace folder named "${PLATFORM_METADATA_FOLDER_NAME}" is open.`);
+    return;
+  }
+  return generateInstallScriptCore(root, [PLATFORM_METADATA_FOLDER_NAME], context, outputChannel);
+}
+
+async function generateInstallScriptCore(
+  repoRoot: string,
+  resourceSubdirs: string[],
+  context: vscode.ExtensionContext,
+  outputChannel: vscode.OutputChannel
+): Promise<void> {
   outputChannel.show(true);
   outputChannel.appendLine('=== Generate Install Script ===');
 
-  const version = await readOrPromptVersion(devkitRoot, outputChannel);
+  const version = await readOrPromptVersion(repoRoot, outputChannel);
   if (!version) { return; }
 
-  const scriptsDir = path.join(devkitRoot, 'dev-scripts');
+  const scriptsDir = path.join(repoRoot, 'dev-scripts');
   try {
     if (!fs.existsSync(scriptsDir)) { fs.mkdirSync(scriptsDir, { recursive: true }); }
   } catch (err) {
@@ -1440,8 +1470,9 @@ export async function generateInstallScript(
     return;
   }
 
-  const ps1Src = path.join(context.extensionPath, 'resources', 'dev-scripts', 'Install-TargetNugets.ps1');
-  const readmeSrc = path.join(context.extensionPath, 'resources', 'dev-scripts', 'README.md');
+  const resourceDir = path.join(context.extensionPath, 'resources', 'dev-scripts', ...resourceSubdirs);
+  const ps1Src = path.join(resourceDir, 'Install-TargetNugets.ps1');
+  const readmeSrc = path.join(resourceDir, 'README.md');
   const ps1Dst = path.join(scriptsDir, 'Install-TargetNugets.ps1');
   const readmeDst = path.join(scriptsDir, 'README.md');
 
@@ -1456,7 +1487,7 @@ export async function generateInstallScript(
     return;
   }
 
-  const gitignorePath = path.join(devkitRoot, '.gitignore');
+  const gitignorePath = path.join(repoRoot, '.gitignore');
   try {
     let gitignoreContent = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
     const lines = gitignoreContent.split(/\r?\n/);
@@ -1494,10 +1525,54 @@ export async function installTargetNugets(
     return;
   }
 
-  outputChannel.show(true);
-  outputChannel.appendLine(`=== Install targets Nugets (${devkitRoot}) ===`);
+  const projects: string[] = [];
+  const dataverseSrc = path.join(devkitRoot, 'src', 'Dataverse');
+  if (fs.existsSync(dataverseSrc)) { collectCsprojs(dataverseSrc, projects); }
+  const sdkProj = path.join(devkitRoot, 'src', 'Sdk', 'TALXIS.DevKit.Build.Sdk.csproj');
+  if (fs.existsSync(sdkProj)) { projects.push(sdkProj); }
 
-  const version = await readOrPromptVersion(devkitRoot, outputChannel);
+  if (projects.length === 0) {
+    vscode.window.showWarningMessage('No .csproj files found under src\\Dataverse or src\\Sdk.');
+    return;
+  }
+
+  return packProjectsIntoLocalFeed(devkitRoot, projects, outputChannel, spawnFn, execFn);
+}
+
+export async function platformMetadataInstallNugets(
+  outputChannel: vscode.OutputChannel,
+  spawnFn: SpawnFn = defaultSpawn as any,
+  execFn: ExecFn = defaultExec as any
+): Promise<void> {
+  const root = getPlatformMetadataRoot();
+  if (!root) {
+    vscode.window.showErrorMessage(`No workspace folder named "${PLATFORM_METADATA_FOLDER_NAME}" is open.`);
+    return;
+  }
+
+  const projects: string[] = [];
+  const srcDir = path.join(root, 'src');
+  if (fs.existsSync(srcDir)) { collectCsprojs(srcDir, projects); }
+
+  if (projects.length === 0) {
+    vscode.window.showWarningMessage('No .csproj files found under src\\.');
+    return;
+  }
+
+  return packProjectsIntoLocalFeed(root, projects, outputChannel, spawnFn, execFn);
+}
+
+async function packProjectsIntoLocalFeed(
+  repoRoot: string,
+  projects: string[],
+  outputChannel: vscode.OutputChannel,
+  spawnFn: SpawnFn,
+  execFn: ExecFn
+): Promise<void> {
+  outputChannel.show(true);
+  outputChannel.appendLine(`=== Install targets Nugets (${repoRoot}) ===`);
+
+  const version = await readOrPromptVersion(repoRoot, outputChannel);
   if (!version) { return; }
 
   const localFeed = await resolveLocalNugetFeed(outputChannel);
@@ -1513,18 +1588,7 @@ export async function installTargetNugets(
     }
   }
 
-  const projects: string[] = [];
-  const dataverseSrc = path.join(devkitRoot, 'src', 'Dataverse');
-  if (fs.existsSync(dataverseSrc)) { collectCsprojs(dataverseSrc, projects); }
-  const sdkProj = path.join(devkitRoot, 'src', 'Sdk', 'TALXIS.DevKit.Build.Sdk.csproj');
-  if (fs.existsSync(sdkProj)) { projects.push(sdkProj); }
-
-  if (projects.length === 0) {
-    vscode.window.showWarningMessage('No .csproj files found under src\\Dataverse or src\\Sdk.');
-    return;
-  }
-
-  const artifactsDir = path.join(devkitRoot, 'artifacts');
+  const artifactsDir = path.join(repoRoot, 'artifacts');
   if (!fs.existsSync(artifactsDir)) { fs.mkdirSync(artifactsDir, { recursive: true }); }
 
   await vscode.window.withProgress(

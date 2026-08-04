@@ -44,6 +44,21 @@ export class DevkitBuildActionsProvider implements vscode.TreeDataProvider<Clean
   }
 }
 
+export class PlatformMetadataActionsProvider implements vscode.TreeDataProvider<CleanupActionItem> {
+  private actions: CleanupActionItem[] = [
+    new CleanupActionItem('Install targets Nugets', 'dotnet-cleanup.platformMetadataInstallNugets'),
+    new CleanupActionItem('Generate Install Script', 'dotnet-cleanup.platformMetadataGenerateScript')
+  ];
+
+  getTreeItem(element: CleanupActionItem): vscode.TreeItem {
+    return element;
+  }
+
+  getChildren(): CleanupActionItem[] {
+    return this.actions;
+  }
+}
+
 export class ToolsCliActionsProvider implements vscode.TreeDataProvider<CleanupActionItem> {
   private actions: CleanupActionItem[] = [
     new CleanupActionItem('Reinstall Local', 'dotnet-cleanup.toolsCliReinstallLocal'),
