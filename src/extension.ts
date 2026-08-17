@@ -1,13 +1,16 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { CleanupActionsProvider, DevkitBuildActionsProvider, PlatformMetadataActionsProvider, DataverseActionsProvider, ToolsCliActionsProvider } from './treeViewProvider';
-import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, dataverseSolutionUnpack, dataverseSolutionImport, dataversePackageDeploy, addDataverseEnvironment, createDataverseEnvironment, deleteDataverseEnvironment, revealDataverseEnvironmentsConfig, migrateEnvironmentsToGlobalIfNeeded, openInNewWindow, sendToLocalNugetFeed, sortExplorerByModified, sortExplorerByDefault, updateExplorerSortContextKey, toolsCliReinstallLocal, toolsCliGenerateScript, resendLastCommit, combineCommits, gitWipe, platformMetadataInstallNugets, platformMetadataGenerateScript, DEVKIT_FOLDER_NAME, PLATFORM_METADATA_FOLDER_NAME, TOOLS_CLI_FOLDER_NAME } from './commands';
+import { CleanupActionsProvider, GitActionsProvider, DevkitBuildActionsProvider, PlatformMetadataActionsProvider, DataverseActionsProvider, ToolsCliActionsProvider } from './treeViewProvider';
+import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, dataverseSolutionUnpack, dataverseSolutionImport, dataversePackageDeploy, addDataverseEnvironment, createDataverseEnvironment, deleteDataverseEnvironment, revealDataverseEnvironmentsConfig, migrateEnvironmentsToGlobalIfNeeded, openInNewWindow, sendToLocalNugetFeed, sortExplorerByModified, sortExplorerByDefault, updateExplorerSortContextKey, toolsCliReinstallLocal, toolsCliGenerateScript, resendLastCommit, combineCommits, undoLastCommit, gitWipe, platformMetadataInstallNugets, platformMetadataGenerateScript, DEVKIT_FOLDER_NAME, PLATFORM_METADATA_FOLDER_NAME, TOOLS_CLI_FOLDER_NAME } from './commands';
 
 export function activate(context: vscode.ExtensionContext) {
   const outputChannel = vscode.window.createOutputChannel('Zekelin .NET Tools');
 
   const provider = new CleanupActionsProvider();
   vscode.window.registerTreeDataProvider('dotnetCleanupActions', provider);
+
+  const gitProvider = new GitActionsProvider();
+  vscode.window.registerTreeDataProvider('zekelinGitActions', gitProvider);
 
   const devkitProvider = new DevkitBuildActionsProvider();
   vscode.window.registerTreeDataProvider('zekelinDevkitBuildActions', devkitProvider);
@@ -185,6 +188,12 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('dotnet-cleanup.combineCommits', () => {
       return combineCommits(outputChannel);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.undoLastCommit', () => {
+      return undoLastCommit(outputChannel);
     })
   );
 

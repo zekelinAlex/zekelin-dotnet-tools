@@ -31,6 +31,10 @@
           "name": "Actions"
         },
         {
+          "id": "zekelinGitActions",
+          "name": "Git"
+        },
+        {
           "id": "zekelinDevkitBuildActions",
           "name": "tools-devkit-build",
           "when": "zekelin.isDevkitBuild"
@@ -163,6 +167,10 @@
       {
         "command": "dotnet-cleanup.combineCommits",
         "title": "Combine commits (squash into first)"
+      },
+      {
+        "command": "dotnet-cleanup.undoLastCommit",
+        "title": "Undo last commit (keep changes)"
       },
       {
         "command": "dotnet-cleanup.gitWipe",

@@ -140,6 +140,7 @@ Every action is also directly invocable via `Ctrl+Shift+P`:
 | `dotnet-cleanup.toolsCliGenerateScript` | tools-cli: Generate Reinstall Script |
 | `dotnet-cleanup.resendLastCommit` | Resend last commit (refresh timestamp) |
 | `dotnet-cleanup.combineCommits` | Combine commits (squash into first) |
+| `dotnet-cleanup.undoLastCommit` | Undo last commit (keep changes) |
 
 ## Explorer title-bar button: toggle sort by modified date
 

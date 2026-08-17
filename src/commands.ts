@@ -2334,3 +2334,75 @@ export async function combineCommits(
   if (after.stdout) { outputChannel.appendLine(`New commit: ${after.stdout.trim()}`); }
   vscode.window.showInformationMessage(`Combined ${count} commit(s) into: ${subject}`);
 }
+
+// ─── Undo last commit (keep changes) ───────────────────────────────────────────
+// `git reset --soft HEAD~1` — drops the commit but leaves every change staged, so
+// the files reappear in Source Control ready to be recommitted. For a repo whose
+// only commit is being undone there is no HEAD~1, so the ref is deleted instead
+// (same effect: index and working tree untouched).
+
+export async function undoLastCommit(
+  outputChannel: vscode.OutputChannel,
+  runner: GitRunner = defaultGitRunner,
+  confirm: (msg: string, modal: boolean, ...actions: string[]) => Thenable<string | undefined> =
+    (msg, modal, ...actions) => vscode.window.showWarningMessage(msg, { modal }, ...actions)
+): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    vscode.window.showErrorMessage('Open a workspace folder with a git repository first.');
+    return;
+  }
+
+  const seed = folders[0].uri.fsPath;
+  const rootRes = await runner(['rev-parse', '--show-toplevel'], seed);
+  if (rootRes.error) {
+    vscode.window.showErrorMessage('Not a git repository (or no commits yet).');
+    return;
+  }
+  const repoRoot = rootRes.stdout.trim();
+
+  const info = await runner(['log', '-1', '--format=%H%n%h %s%n%ad', '--date=iso'], repoRoot);
+  if (info.error) {
+    vscode.window.showErrorMessage('No commits to undo in this repository.');
+    return;
+  }
+  const [head = '', shaAndSubject = '', dateLine = ''] = info.stdout.split(/\r?\n/);
+
+  const parent = await runner(['rev-parse', '--verify', '--quiet', 'HEAD~1'], repoRoot);
+  const isRootCommit = parent.error || parent.stdout.trim().length === 0;
+
+  const filesRes = isRootCommit
+    ? await runner(['show', '--pretty=', '--name-only', 'HEAD'], repoRoot)
+    : await runner(['diff', '--name-only', 'HEAD~1', 'HEAD'], repoRoot);
+  const fileCount = filesRes.stdout.split(/\r?\n/).filter((l) => l.trim()).length;
+
+  const choice = await confirm(
+    `Undo the last commit and keep its changes?\n\n` +
+    `${shaAndSubject}\n${dateLine}\n${fileCount} file(s) will come back as staged changes.\n\n` +
+    `Runs: git reset --soft ${isRootCommit ? '(delete HEAD ref)' : 'HEAD~1'}\n` +
+    `Nothing is deleted — recover the commit with: git reset --hard ${head.slice(0, 7)}\n` +
+    `If you've already pushed this commit, you'll need git push --force afterwards.`,
+    true,
+    'Undo commit'
+  );
+  if (choice !== 'Undo commit') return;
+
+  outputChannel.show(true);
+  outputChannel.appendLine(`Repo: ${repoRoot}`);
+  outputChannel.appendLine(`Undoing: ${shaAndSubject}`);
+  outputChannel.appendLine(`Recover with: git reset --hard ${head}`);
+
+  const args = isRootCommit ? ['update-ref', '-d', 'HEAD'] : ['reset', '--soft', 'HEAD~1'];
+  outputChannel.appendLine(`Running: git ${args.join(' ')}`);
+  const res = await runner(args, repoRoot);
+  if (res.stdout) { outputChannel.appendLine(res.stdout.trimEnd()); }
+  if (res.stderr) { outputChannel.appendLine(res.stderr.trimEnd()); }
+  if (res.error) {
+    vscode.window.showErrorMessage('Undo last commit failed. See output for details.');
+    return;
+  }
+
+  vscode.window.showInformationMessage(
+    `Commit undone — ${fileCount} file(s) are back as staged changes.`
+  );
+}

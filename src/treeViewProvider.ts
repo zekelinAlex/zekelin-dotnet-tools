@@ -15,9 +15,24 @@ export class CleanupActionsProvider implements vscode.TreeDataProvider<CleanupAc
   private actions: CleanupActionItem[] = [
     new CleanupActionItem('Clear NuGet Cache', 'dotnet-cleanup.clearNugetCache'),
     new CleanupActionItem('Kill .NET Processes', 'dotnet-cleanup.killDotnetProcesses'),
-    new CleanupActionItem('Kill VBCSCompiler', 'dotnet-cleanup.killVBCSCompiler'),
+    new CleanupActionItem('Kill VBCSCompiler', 'dotnet-cleanup.killVBCSCompiler')
+  ];
+
+  getTreeItem(element: CleanupActionItem): vscode.TreeItem {
+    return element;
+  }
+
+  getChildren(): CleanupActionItem[] {
+    return this.actions;
+  }
+}
+
+export class GitActionsProvider implements vscode.TreeDataProvider<CleanupActionItem> {
+  private actions: CleanupActionItem[] = [
+    new CleanupActionItem('Undo last commit', 'dotnet-cleanup.undoLastCommit'),
     new CleanupActionItem('Resend last commit', 'dotnet-cleanup.resendLastCommit'),
-    new CleanupActionItem('Combine commits', 'dotnet-cleanup.combineCommits')
+    new CleanupActionItem('Combine commits', 'dotnet-cleanup.combineCommits'),
+    new CleanupActionItem('Git Wipe', 'dotnet-cleanup.gitWipe')
   ];
 
   getTreeItem(element: CleanupActionItem): vscode.TreeItem {
