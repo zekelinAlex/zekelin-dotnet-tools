@@ -747,6 +747,7 @@ export function killDotnetProcesses(
 
 export const DEVKIT_FOLDER_NAME = 'tools-devkit-build';
 export const PLATFORM_METADATA_FOLDER_NAME = 'platform-metadata';
+export const TOOLS_DEVKIT_TEMPLATES_FOLDER_NAME = 'tools-devkit-templates';
 const DEFAULT_LOCAL_FEED = 'C:\\NuGetLocal';
 const DEVKIT_CONFIG_FILE = 'zekelin-dotnet-tools.json';
 
@@ -762,6 +763,15 @@ export function getDevkitBuildRoot(): string | undefined {
 export function getPlatformMetadataRoot(): string | undefined {
   for (const folder of vscode.workspace.workspaceFolders || []) {
     if (path.basename(folder.uri.fsPath) === PLATFORM_METADATA_FOLDER_NAME) {
+      return folder.uri.fsPath;
+    }
+  }
+  return undefined;
+}
+
+export function getToolsDevkitTemplatesRoot(): string | undefined {
+  for (const folder of vscode.workspace.workspaceFolders || []) {
+    if (path.basename(folder.uri.fsPath) === TOOLS_DEVKIT_TEMPLATES_FOLDER_NAME) {
       return folder.uri.fsPath;
     }
   }
@@ -1291,16 +1301,17 @@ export async function dataversePackageDeploy(
   }
 }
 
-function collectCsprojs(dir: string, results: string[]): void {
+function collectCsprojs(dir: string, results: string[], skipDirs: string[] = []): void {
   let entries: string[];
   try { entries = fs.readdirSync(dir) as string[]; } catch { return; }
   for (const entry of entries) {
     const full = path.join(dir, entry);
     if (entry.toLowerCase().endsWith('.csproj')) { results.push(full); continue; }
     if (entry === 'bin' || entry === 'obj' || entry === 'node_modules' || entry === '.git' || entry === '.vs') { continue; }
+    if (skipDirs.includes(entry)) { continue; }
     let st: fs.Stats;
     try { st = fs.statSync(full); } catch { continue; }
-    if (st.isDirectory()) { collectCsprojs(full, results); }
+    if (st.isDirectory()) { collectCsprojs(full, results, skipDirs); }
   }
 }
 
@@ -1449,6 +1460,18 @@ export async function platformMetadataGenerateScript(
   return generateInstallScriptCore(root, [PLATFORM_METADATA_FOLDER_NAME], context, outputChannel);
 }
 
+export async function toolsDevkitTemplatesGenerateScript(
+  context: vscode.ExtensionContext,
+  outputChannel: vscode.OutputChannel
+): Promise<void> {
+  const root = getToolsDevkitTemplatesRoot();
+  if (!root) {
+    vscode.window.showErrorMessage(`No workspace folder named "${TOOLS_DEVKIT_TEMPLATES_FOLDER_NAME}" is open.`);
+    return;
+  }
+  return generateInstallScriptCore(root, [TOOLS_DEVKIT_TEMPLATES_FOLDER_NAME], context, outputChannel);
+}
+
 async function generateInstallScriptCore(
   repoRoot: string,
   resourceSubdirs: string[],
@@ -1562,12 +1585,84 @@ export async function platformMetadataInstallNugets(
   return packProjectsIntoLocalFeed(root, projects, outputChannel, spawnFn, execFn);
 }
 
+export async function toolsDevkitTemplatesInstallNugets(
+  outputChannel: vscode.OutputChannel,
+  spawnFn: SpawnFn = defaultSpawn as any,
+  execFn: ExecFn = defaultExec as any
+): Promise<void> {
+  const root = getToolsDevkitTemplatesRoot();
+  if (!root) {
+    vscode.window.showErrorMessage(`No workspace folder named "${TOOLS_DEVKIT_TEMPLATES_FOLDER_NAME}" is open.`);
+    return;
+  }
+
+  // Everything under templates/ is template *content* — those .csproj files are
+  // scaffolding examples, not packages, so they must never be packed.
+  const projects: string[] = [];
+  const srcDir = path.join(root, 'src');
+  if (fs.existsSync(srcDir)) { collectCsprojs(srcDir, projects, ['templates']); }
+
+  if (projects.length === 0) {
+    vscode.window.showWarningMessage('No packable .csproj files found under src\\ (templates/ is excluded).');
+    return;
+  }
+
+  return packProjectsIntoLocalFeed(root, projects, outputChannel, spawnFn, execFn, reinstallDotnetTemplates);
+}
+
+// A template package only takes effect once `dotnet new` re-registers it, so
+// packing into the local feed alone would leave `dotnet new pp-*` on the old copy.
+async function reinstallDotnetTemplates(args: {
+  version: string;
+  localFeed: string;
+  packageIds: string[];
+  outputChannel: vscode.OutputChannel;
+  progress: vscode.Progress<{ message?: string }>;
+  token: vscode.CancellationToken;
+  spawnFn: SpawnFn;
+}): Promise<void> {
+  const { version, localFeed, packageIds, outputChannel, progress, token, spawnFn } = args;
+  if (packageIds.length === 0) { return; }
+
+  outputChannel.appendLine('\n=== Reinstalling dotnet new templates ===');
+  for (const id of packageIds) {
+    if (token.isCancellationRequested) { return; }
+    progress.report({ message: `uninstall ${id}` });
+    outputChannel.appendLine(`\nUninstalling ${id} (ignored when not installed) ...`);
+    await runStreamedDotnet(['new', 'uninstall', id], outputChannel, progress, token, '', spawnFn);
+
+    progress.report({ message: `install ${id}::${version}` });
+    outputChannel.appendLine(`\nInstalling ${id}::${version} from ${localFeed} ...`);
+    const ok = await runStreamedDotnet(
+      ['new', 'install', `${id}::${version}`, '--add-source', localFeed],
+      outputChannel,
+      progress,
+      token,
+      '',
+      spawnFn
+    );
+    if (!ok) {
+      outputChannel.appendLine(`FAILED to install ${id}::${version}`);
+      vscode.window.showErrorMessage(`Failed to install template package ${id}::${version}. See output for details.`);
+    }
+  }
+}
+
 async function packProjectsIntoLocalFeed(
   repoRoot: string,
   projects: string[],
   outputChannel: vscode.OutputChannel,
   spawnFn: SpawnFn,
-  execFn: ExecFn
+  execFn: ExecFn,
+  postPack?: (args: {
+    version: string;
+    localFeed: string;
+    packageIds: string[];
+    outputChannel: vscode.OutputChannel;
+    progress: vscode.Progress<{ message?: string }>;
+    token: vscode.CancellationToken;
+    spawnFn: SpawnFn;
+  }) => Promise<void>
 ): Promise<void> {
   outputChannel.show(true);
   outputChannel.appendLine(`=== Install targets Nugets (${repoRoot}) ===`);
@@ -1629,6 +1724,10 @@ async function packProjectsIntoLocalFeed(
       progress.report({ message: `Copying .nupkg files to ${localFeed}` });
       outputChannel.appendLine(`\n=== Copying packages to ${localFeed} ===`);
       const pkgs = fs.readdirSync(artifactsDir).filter(f => f.toLowerCase().endsWith('.nupkg'));
+      const versionSuffix = `.${version}.nupkg`;
+      const packageIds = pkgs
+        .filter(f => f.endsWith(versionSuffix))
+        .map(f => f.slice(0, -versionSuffix.length));
       for (const pkg of pkgs) {
         const src = path.join(artifactsDir, pkg);
         const dst = path.join(localFeed, pkg);
@@ -1653,6 +1752,10 @@ async function packProjectsIntoLocalFeed(
       progress.report({ message: 'Clearing NuGet cache' });
       outputChannel.appendLine('\n=== Clearing NuGet cache ===');
       await runStreamedDotnet(['nuget', 'locals', 'all', '--clear'], outputChannel, progress, token, '', spawnFn);
+
+      if (postPack) {
+        await postPack({ version, localFeed, packageIds, outputChannel, progress, token, spawnFn });
+      }
 
       outputChannel.appendLine('\nAll done!');
       vscode.window.showInformationMessage('Install targets Nugets completed.');

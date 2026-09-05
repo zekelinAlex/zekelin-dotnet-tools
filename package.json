@@ -45,6 +45,11 @@
           "when": "zekelin.isPlatformMetadata"
         },
         {
+          "id": "zekelinToolsDevkitTemplatesActions",
+          "name": "tools-devkit-templates",
+          "when": "zekelin.isToolsDevkitTemplates"
+        },
+        {
           "id": "zekelinDataverseActions",
           "name": "Dataverse"
         },
@@ -183,6 +188,14 @@
       {
         "command": "dotnet-cleanup.platformMetadataGenerateScript",
         "title": "platform-metadata: Generate Install Script"
+      },
+      {
+        "command": "dotnet-cleanup.toolsDevkitTemplatesInstallNugets",
+        "title": "tools-devkit-templates: Install targets Nugets"
+      },
+      {
+        "command": "dotnet-cleanup.toolsDevkitTemplatesGenerateScript",
+        "title": "tools-devkit-templates: Generate Install Script"
       }
     ],
     "menus": {

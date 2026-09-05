@@ -124,6 +124,8 @@ Every action is also directly invocable via `Ctrl+Shift+P`:
 | `dotnet-cleanup.generateInstallScript` | Generate Install Script |
 | `dotnet-cleanup.platformMetadataInstallNugets` | platform-metadata: Install targets Nugets |
 | `dotnet-cleanup.platformMetadataGenerateScript` | platform-metadata: Generate Install Script |
+| `dotnet-cleanup.toolsDevkitTemplatesInstallNugets` | tools-devkit-templates: Install targets Nugets |
+| `dotnet-cleanup.toolsDevkitTemplatesGenerateScript` | tools-devkit-templates: Generate Install Script |
 | `dotnet-cleanup.generateSnippetPrefixes` | Generate Snippet Prefixes |
 | `dotnet-cleanup.dataverseSolutionUnpack` | Dataverse Solutions unpack |
 | `dotnet-cleanup.dataverseSolutionImport` | Dataverse Solutions Import |
