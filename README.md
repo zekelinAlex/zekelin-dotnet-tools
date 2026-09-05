@@ -169,3 +169,26 @@ npx @vscode/vsce package --allow-missing-repository
 ```
 
 A prebuilt package is produced at `zekelin-dotnet-tools-0.0.1.vsix` — install it via `Extensions: Install from VSIX...`.
+
+## New machine setup: `Install-DevEnvironment.ps1`
+
+One script at the repo root restores the whole VS Code setup on a fresh computer:
+
+```powershell
+.\Install-DevEnvironment.ps1
+```
+
+It does two things, in order:
+
+1. Installs every marketplace extension listed in `vscode-extensions.txt` via `code --install-extension <id> --force`. Nothing is version-pinned or version-checked — you always end up on the newest version of each extension.
+2. Runs `npm ci` (or `npm install` when there's no lockfile), compiles the TypeScript, packages a `.vsix` with `@vscode/vsce`, and installs it with `--force` so the freshest local build always wins.
+
+Failures are collected rather than aborting the run, and printed as a summary at the end together with any extension that has to be installed by hand (anything originally installed from a `.vsix` rather than the marketplace — those are kept in `vscode-extensions.txt` as comments).
+
+| Switch | Effect |
+| --- | --- |
+| `-Export` | Rewrites `vscode-extensions.txt` from the extensions currently installed on this machine, then exits. Run it after installing something you want to keep. |
+| `-SkipExtensions` | Only build and install this repo's extension. |
+| `-SkipBuild` | Only install the marketplace extensions. |
+
+Requires the `code` CLI on `PATH` (`Shell Command: Install 'code' command in PATH` from the command palette) and Node.js / npm for the build half. The extension list is read from `%USERPROFILE%\.vscode\extensions\extensions.json` rather than `code --list-extensions`, which can hang while a VS Code window is open.

@@ -1,0 +1,18 @@
+# VS Code extensions installed by Install-DevEnvironment.ps1.
+# One marketplace extension id per line - no versions, the newest one is always installed.
+# Blank lines and # comments are ignored.
+# Regenerate from the current machine with: .\Install-DevEnvironment.ps1 -Export
+
+adamraichu.docx-viewer
+emmanuelbeziat.vscode-great-icons
+matt-meyers.vscode-dbml
+ms-azuretools.vscode-containers
+ms-dotnettools.csdevkit
+ms-dotnettools.csharp
+ms-dotnettools.vscode-dotnet-runtime
+ms-vscode.powershell
+wassim-k.rename-replace-extension
+
+# --- Installed from a .vsix, not from the marketplace ---
+# The script cannot fetch these; it only reminds you to install them by hand.
+# networg.talxis-sdk-devkit-vscode
