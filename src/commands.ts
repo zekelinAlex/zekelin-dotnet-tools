@@ -2080,6 +2080,8 @@ const TOOLS_CLI_REINSTALL_SCRIPT_CONTENT = `#Requires -Version 7
     Packs src/TALXIS.CLI under a unique dev version (so NuGet can't serve a
     stale cached copy), uninstalls any existing global 'txc', then installs the
     freshly packed nupkg. Pass -IncludeMcp to do the same for 'txc-mcp'.
+    Also clears the dotnet new template cache (~/.templateengine/packages)
+    so txc reinstalls templates fresh on its next run.
 
 .EXAMPLE
     ./scripts/reinstall-local.ps1
@@ -2146,6 +2148,16 @@ Remove-Item (Join-Path $nupkgDir 'TALXIS.CLI.*.nupkg') -Force -ErrorAction Silen
 Invoke-Reinstall -PackageId 'TALXIS.CLI' -ProjectPath $cliProj -CommandName 'txc'
 if ($IncludeMcp) {
     Invoke-Reinstall -PackageId 'TALXIS.CLI.MCP' -ProjectPath $mcpProj -CommandName 'txc-mcp'
+}
+
+# Wipe the dotnet new template cache so no previously installed template
+# package survives; txc reinstalls templates on its next run.
+$templateCache = Join-Path $HOME '.templateengine/packages'
+if (Test-Path $templateCache) {
+    Write-Host ""
+    Write-Host "Clearing dotnet new template cache ($templateCache)..." -ForegroundColor Cyan
+    try { dotnet new uninstall 'TALXIS.DevKit.Templates.Dataverse' 2>&1 | Out-Null } catch { }
+    Remove-Item (Join-Path $templateCache '*.nupkg') -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host ""
@@ -2288,7 +2300,10 @@ const TOOLS_CLI_NUGET_REINSTALL_SCRIPT_CONTENT = `#Requires -Version 7
     Uninstalls the global 'txc' tool (typically a 0.0.0-local.* dev build)
     and installs the newest TALXIS.CLI release from nuget.org. If the MCP
     server (txc-mcp) is currently installed, it is reinstalled from
-    nuget.org too so both tools stay on the same version.
+    nuget.org too so both tools stay on the same version. The
+    TALXIS.DevKit.Templates.Dataverse dotnet new template package is also
+    swapped for its latest nuget.org release (locally packed template
+    versions in ~/.templateengine/packages are removed).
 #>
 [CmdletBinding()]
 param()
@@ -2324,9 +2339,42 @@ if ($hasMcp) {
     Invoke-NugetReinstall -PackageId 'TALXIS.CLI.MCP' -CommandName 'txc-mcp'
 }
 
+# Swap the dotnet new template package for the latest nuget.org release:
+# drop the installed copy (usually a locally packed 99.0.0 that would
+# otherwise outrank every release) and install the newest published version
+# explicitly, so no other configured feed can win the resolution.
+$templateId = 'TALXIS.DevKit.Templates.Dataverse'
+$templateCache = Join-Path $HOME '.templateengine/packages'
+
+Write-Host "==> $templateId (dotnet new templates)" -ForegroundColor Cyan
+Write-Host "    uninstalling current template package..."
+try { dotnet new uninstall $templateId 2>&1 | Out-Null }
+catch { Write-Host "    (was not installed)" -ForegroundColor DarkGray }
+
+if (Test-Path $templateCache) {
+    Remove-Item (Join-Path $templateCache '*.nupkg') -Force -ErrorAction SilentlyContinue
+}
+
+Write-Host "    resolving latest version on nuget.org ..."
+$search = dotnet package search $templateId --source $nugetSource --exact-match --format json | ConvertFrom-Json
+$latest = $search.searchResult |
+    ForEach-Object { $_.packages } |
+    Where-Object { $_.id -eq $templateId } |
+    ForEach-Object { if ($_.latestVersion) { $_.latestVersion } else { $_.version } } |
+    Sort-Object { [System.Version](($_ -split '-')[0]) } |
+    Select-Object -Last 1
+if (-not $latest) { throw "could not resolve the latest $templateId version from nuget.org" }
+
+Write-Host "    installing $templateId $latest ..."
+dotnet new install "$templateId::$latest" --force
+if ($LASTEXITCODE -ne 0) { throw "dotnet new install failed for $templateId" }
+Write-Host "    done -> $templateId $latest" -ForegroundColor Green
+
 Write-Host ""
 Write-Host "Installed tools:" -ForegroundColor Cyan
 dotnet tool list --global | Select-String -Pattern 'talxis'
+Write-Host "Installed TALXIS templates:" -ForegroundColor Cyan
+dotnet new uninstall 2>&1 | Select-String -Pattern 'TALXIS' -Context 0,1
 `;
 
 export async function toolsCliReinstallNuget(
