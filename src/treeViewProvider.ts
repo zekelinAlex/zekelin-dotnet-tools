@@ -133,14 +133,14 @@ export class DataverseActionsProvider implements vscode.TreeDataProvider<vscode.
     const createBtn = new vscode.TreeItem('Create environment', vscode.TreeItemCollapsibleState.None);
     createBtn.command = { command: 'dotnet-cleanup.createDataverseEnvironment', title: 'Create environment' };
     createBtn.iconPath = new vscode.ThemeIcon('cloud-upload');
-    createBtn.tooltip = 'pac admin create --currency EUR --region europe --type Developer';
+    createBtn.tooltip = 'txc env create --currency EUR --region europe --type Developer --wait';
     createBtn.contextValue = 'dataverseCreateEnvironment';
     items.push(createBtn);
 
     const deleteBtn = new vscode.TreeItem('Delete environment', vscode.TreeItemCollapsibleState.None);
     deleteBtn.command = { command: 'dotnet-cleanup.deleteDataverseEnvironment', title: 'Delete environment' };
     deleteBtn.iconPath = new vscode.ThemeIcon('trash');
-    deleteBtn.tooltip = 'pac admin delete --environment <id> --async';
+    deleteBtn.tooltip = 'txc env delete <id> --yes';
     deleteBtn.contextValue = 'dataverseDeleteEnvironment';
     items.push(deleteBtn);
 

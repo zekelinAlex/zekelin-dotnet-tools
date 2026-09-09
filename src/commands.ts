@@ -968,24 +968,24 @@ function dataverseEnvironmentTarget(env: DataverseEnvironment): string {
   return env.url || env.id || env.name;
 }
 
-async function runPacStream(
+async function runTxcStream(
   args: string[],
   outputChannel: vscode.OutputChannel,
   title: string,
   spawnFn: SpawnFn
 ): Promise<{ ok: boolean; code: number | null }> {
-  const res = await runPacCapture(args, outputChannel, title, spawnFn);
+  const res = await runTxcCapture(args, outputChannel, title, spawnFn);
   return { ok: res.ok, code: res.code };
 }
 
-async function runPacCapture(
+async function runTxcCapture(
   args: string[],
   outputChannel: vscode.OutputChannel,
   title: string,
   spawnFn: SpawnFn
 ): Promise<{ ok: boolean; code: number | null; stdout: string; stderr: string }> {
   const quoted = args.map(quoteShellArg);
-  const printable = `pac ${quoted.join(' ')}`;
+  const printable = `txc ${quoted.join(' ')}`;
   return await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
@@ -995,7 +995,7 @@ async function runPacCapture(
     () =>
       new Promise<{ ok: boolean; code: number | null; stdout: string; stderr: string }>((resolve) => {
         outputChannel.appendLine(`Running: ${printable}`);
-        const child = spawnFn('pac', quoted, { shell: true });
+        const child = spawnFn('txc', quoted, { shell: true });
         let stdout = '';
         let stderr = '';
         const streamOut = (chunk: Buffer | string) => {
@@ -1025,58 +1025,87 @@ async function runPacCapture(
   );
 }
 
-function parsePacAdminCreateOutput(output: string): { url: string; id: string; name: string } | undefined {
-  const lines = output.split(/\r?\n/);
-  const expectedColumns = [
-    'Environment Url',
-    'Environment ID',
-    'Friendly Name',
-    'Domain Name',
-    'Organization ID',
-    'Version'
-  ];
+// txc prints one JSON object with --format json; log lines may surround it,
+// so cut from the first "{" to the last "}" before parsing.
+function parseTxcJsonObject(output: string): any | undefined {
+  const start = output.indexOf('{');
+  const end = output.lastIndexOf('}');
+  if (start === -1 || end <= start) { return undefined; }
+  try { return JSON.parse(output.slice(start, end + 1)); } catch { return undefined; }
+}
 
-  let headerIdx = -1;
-  for (let i = 0; i < lines.length; i++) {
-    const l = lines[i];
-    if (l.includes('Environment Url') && l.includes('Environment ID') && l.includes('Friendly Name')) {
-      headerIdx = i;
-      break;
-    }
-  }
-  if (headerIdx === -1) { return undefined; }
+function parseTxcJsonArray(output: string): any[] | undefined {
+  const start = output.indexOf('[');
+  const end = output.lastIndexOf(']');
+  if (start === -1 || end <= start) { return undefined; }
+  try {
+    const parsed = JSON.parse(output.slice(start, end + 1));
+    return Array.isArray(parsed) ? parsed : undefined;
+  } catch { return undefined; }
+}
 
-  const header = lines[headerIdx];
-  const positions: { name: string; start: number }[] = [];
-  for (const col of expectedColumns) {
-    const start = header.indexOf(col);
-    if (start !== -1) { positions.push({ name: col, start }); }
-  }
-  positions.sort((a, b) => a.start - b.start);
-
-  let dataLine: string | undefined;
-  for (let i = headerIdx + 1; i < lines.length; i++) {
-    const l = lines[i];
-    if (!l.trim()) { continue; }
-    if (/^[-\s]+$/.test(l)) { continue; }
-    dataLine = l;
-    break;
-  }
-  if (!dataLine) { return undefined; }
-
-  const fields: { [key: string]: string } = {};
-  for (let i = 0; i < positions.length; i++) {
-    const { name, start } = positions[i];
-    const end = i + 1 < positions.length ? positions[i + 1].start : dataLine.length;
-    const slice = dataLine.slice(Math.min(start, dataLine.length), Math.min(end, dataLine.length));
-    fields[name] = slice.trim();
-  }
-
-  const url = fields['Environment Url'] || '';
-  const id = fields['Environment ID'] || '';
-  const name = fields['Friendly Name'] || '';
+function parseTxcEnvCreateOutput(output: string): { url: string; id: string; name: string } | undefined {
+  const obj = parseTxcJsonObject(output);
+  if (!obj) { return undefined; }
+  const url = typeof obj.environmentUrl === 'string' ? obj.environmentUrl : '';
+  const id = typeof obj.environmentId === 'string' ? obj.environmentId : '';
+  const name = typeof obj.displayName === 'string' ? obj.displayName : '';
   if (!url && !id && !name) { return undefined; }
   return { url, id, name };
+}
+
+function normalizeEnvironmentUrl(url: string): string {
+  return url.trim().toLowerCase().replace(/\/+$/, '');
+}
+
+// txc solution/package imports address the target environment through a txc
+// profile, not a --environment flag, so map the cached environment to the
+// profile whose connection points at the same environment URL (or id).
+async function resolveTxcProfileForEnvironment(
+  env: DataverseEnvironment,
+  outputChannel: vscode.OutputChannel,
+  spawnFn: SpawnFn
+): Promise<string | undefined> {
+  const profilesRes = await runTxcCapture(
+    ['config', 'profile', 'list', '--format', 'json'],
+    outputChannel,
+    'Resolving txc profile',
+    spawnFn
+  );
+  if (!profilesRes.ok) {
+    vscode.window.showErrorMessage('Failed to list txc profiles. Is the TALXIS CLI (txc) installed?');
+    return undefined;
+  }
+  const profiles = parseTxcJsonArray(profilesRes.stdout) ?? [];
+
+  const connectionsRes = await runTxcCapture(
+    ['config', 'connection', 'list', '--format', 'json'],
+    outputChannel,
+    'Resolving txc connection',
+    spawnFn
+  );
+  const connections = connectionsRes.ok ? parseTxcJsonArray(connectionsRes.stdout) ?? [] : [];
+
+  const wantedUrl = normalizeEnvironmentUrl(env.url || '');
+  const wantedId = (env.id || '').trim().toLowerCase();
+  const matchingConnectionIds = new Set<string>(
+    connections
+      .filter((c: any) =>
+        (wantedUrl && typeof c.environmentUrl === 'string' && normalizeEnvironmentUrl(c.environmentUrl) === wantedUrl) ||
+        (wantedId && typeof c.environmentId === 'string' && c.environmentId.toLowerCase() === wantedId))
+      .map((c: any) => String(c.id))
+  );
+
+  const candidates = profiles.filter((p: any) => matchingConnectionIds.has(String(p.connectionRef)));
+  const picked = candidates.find((p: any) => p.active === true) ?? candidates[0];
+  if (!picked) {
+    const hint = env.url || env.id || env.name;
+    vscode.window.showErrorMessage(
+      `No txc profile targets "${env.name || hint}". Create one first: txc config profile create --url ${env.url || '<environment-url>'}`
+    );
+    return undefined;
+  }
+  return String(picked.id);
 }
 
 export async function createDataverseEnvironment(
@@ -1096,8 +1125,8 @@ export async function createDataverseEnvironment(
 
   outputChannel.show(true);
 
-  const res = await runPacCapture(
-    ['admin', 'create', '--name', trimmedName, '--currency', 'EUR', '--region', 'europe', '--type', 'Developer'],
+  const res = await runTxcCapture(
+    ['env', 'create', '--name', trimmedName, '--currency', 'EUR', '--region', 'europe', '--type', 'Developer', '--wait', '--format', 'json'],
     outputChannel,
     `Creating Dataverse environment "${trimmedName}"`,
     spawnFn
@@ -1109,10 +1138,10 @@ export async function createDataverseEnvironment(
     return undefined;
   }
 
-  const parsed = parsePacAdminCreateOutput(res.stdout);
+  const parsed = parseTxcEnvCreateOutput(res.stdout);
   if (!parsed) {
-    outputChannel.appendLine('Could not parse Environment Url / ID / Friendly Name from pac output. Environment was not added to the cache.');
-    vscode.window.showWarningMessage('Environment created, but its details could not be parsed from pac output. Add it manually via "Add environment".');
+    outputChannel.appendLine('Could not parse environmentUrl / environmentId / displayName from txc output. Environment was not added to the cache.');
+    vscode.window.showWarningMessage('Environment created, but its details could not be parsed from txc output. Add it manually via "Add environment".');
     return undefined;
   }
 
@@ -1171,20 +1200,41 @@ export async function deleteDataverseEnvironment(
 
   const target = env.id || env.url;
   if (!target) {
-    vscode.window.showErrorMessage('Selected environment has no id or url; cannot call pac admin delete.');
+    vscode.window.showErrorMessage('Selected environment has no id or url; cannot call txc env delete.');
     return;
   }
 
   const confirm = await vscode.window.showWarningMessage(
-    `Delete Dataverse environment "${env.name || target}"?\nThis runs "pac admin delete" and is irreversible.`,
+    `Delete Dataverse environment "${env.name || target}"?\nThis runs "txc env delete" and is irreversible.`,
     { modal: true },
     'Delete'
   );
   if (confirm !== 'Delete') { return; }
 
   outputChannel.show(true);
-  const res = await runPacCapture(
-    ['admin', 'delete', '--environment', target, '--async'],
+
+  // txc env delete takes the environment GUID only, so resolve it from the
+  // tenant list when the cache entry has just a URL.
+  let environmentId = (env.id || '').trim();
+  if (!environmentId) {
+    const listRes = await runTxcCapture(
+      ['env', 'list', '--format', 'json', '--filter', env.url || env.name],
+      outputChannel,
+      'Resolving environment id',
+      spawnFn
+    );
+    const wantedUrl = normalizeEnvironmentUrl(env.url || '');
+    const found = (parseTxcJsonArray(listRes.stdout) ?? []).find((e: any) =>
+      wantedUrl && typeof e.environmentUrl === 'string' && normalizeEnvironmentUrl(e.environmentUrl) === wantedUrl);
+    if (!found) {
+      vscode.window.showErrorMessage(`Could not resolve the environment id for "${env.name || target}" via txc env list.`);
+      return;
+    }
+    environmentId = String(found.environmentId);
+  }
+
+  const res = await runTxcCapture(
+    ['env', 'delete', environmentId, '--yes'],
     outputChannel,
     `Deleting Dataverse environment "${env.name || target}"`,
     spawnFn
@@ -1211,17 +1261,17 @@ export async function deleteDataverseEnvironment(
 
   if (notFound) {
     outputChannel.appendLine(
-      `pac reported the environment as not found (exit ${res.code}). Cleaning it from cache.`
+      `txc reported the environment as not found (exit ${res.code}). Cleaning it from cache.`
     );
     const removed = removeEnvironmentFromGlobal(env);
     dataverseEnvironmentsChanged.fire();
     if (removed) {
       vscode.window.showInformationMessage(
-        `Environment "${env.name || target}" was not found by pac — removed from cache.`
+        `Environment "${env.name || target}" was not found by txc - removed from cache.`
       );
     } else {
       vscode.window.showInformationMessage(
-        `Environment "${env.name || target}" was not found by pac and not in cache.`
+        `Environment "${env.name || target}" was not found by txc and not in cache.`
       );
     }
     return;
@@ -1251,8 +1301,10 @@ export async function dataverseSolutionImport(
   }
 
   outputChannel.show(true);
-  const res = await runPacStream(
-    ['solution', 'import', '--path', zipPath, '--environment', target],
+  const profile = await resolveTxcProfileForEnvironment(env, outputChannel, spawnFn);
+  if (!profile) { return; }
+  const res = await runTxcStream(
+    ['env', 'solution', 'import', zipPath, '--wait', '--profile', profile],
     outputChannel,
     `Importing ${path.basename(zipPath)} → ${env.name || target}`,
     spawnFn
@@ -1286,8 +1338,10 @@ export async function dataversePackageDeploy(
   }
 
   outputChannel.show(true);
-  const res = await runPacStream(
-    ['package', 'deploy', '--package', zipPath, '--environment', target],
+  const profile = await resolveTxcProfileForEnvironment(env, outputChannel, spawnFn);
+  if (!profile) { return; }
+  const res = await runTxcStream(
+    ['env', 'package', 'import', zipPath, '--profile', profile],
     outputChannel,
     `Deploying ${path.basename(zipPath)} → ${env.name || target}`,
     spawnFn
@@ -1780,17 +1834,17 @@ export async function dataverseSolutionUnpack(
 
   outputChannel.show(true);
 
-  const runUnpack = (packageType?: 'managed'): Promise<{ ok: boolean; code: number | null }> => {
+  const runUnpack = (managed?: boolean): Promise<{ ok: boolean; code: number | null }> => {
     return new Promise((resolve) => {
-      const args = ['solution', 'unpack', '--zipfile', zipPath, '--localize', '--folder', folderPath];
-      if (packageType) {
-        args.push('--packagetype', packageType);
+      const args = ['env', 'solution', 'unpack', zipPath, '--output', folderPath];
+      if (managed) {
+        args.push('--managed');
       }
       const quoted = args.map(quoteShellArg);
-      const printable = `pac ${quoted.join(' ')}`;
+      const printable = `txc ${quoted.join(' ')}`;
       outputChannel.appendLine(`Running: ${printable}`);
 
-      const child = spawnFn('pac', quoted, { shell: true });
+      const child = spawnFn('txc', quoted, { shell: true });
 
       const stream = (chunk: Buffer | string) => {
         const text = chunk.toString();
@@ -1818,7 +1872,7 @@ export async function dataverseSolutionUnpack(
       cancellable: false
     },
     async (progress) => {
-      progress.report({ message: 'Running pac solution unpack ...' });
+      progress.report({ message: 'Running txc env solution unpack ...' });
       const first = await runUnpack();
       if (first.ok) {
         outputChannel.appendLine(`Unpacked "${path.basename(zipPath)}" to "${folderPath}".`);
@@ -1826,9 +1880,9 @@ export async function dataverseSolutionUnpack(
         return;
       }
 
-      outputChannel.appendLine(`Initial unpack failed (exit ${first.code}). Retrying with --packagetype managed ...`);
-      progress.report({ message: 'Retrying with --packagetype managed ...' });
-      const second = await runUnpack('managed');
+      outputChannel.appendLine(`Initial unpack failed (exit ${first.code}). Retrying with --managed ...`);
+      progress.report({ message: 'Retrying with --managed ...' });
+      const second = await runUnpack(true);
       if (second.ok) {
         outputChannel.appendLine(`Unpacked "${path.basename(zipPath)}" (managed) to "${folderPath}".`);
         vscode.window.showInformationMessage(`Dataverse solution unpacked (managed) to "${folderPath}".`);
