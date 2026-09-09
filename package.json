@@ -162,6 +162,10 @@
         "title": "tools-cli: Reinstall Local (with MCP)"
       },
       {
+        "command": "dotnet-cleanup.toolsCliReinstallNuget",
+        "title": "tools-cli: Reinstall from NuGet"
+      },
+      {
         "command": "dotnet-cleanup.toolsCliGenerateScript",
         "title": "tools-cli: Generate Reinstall Script"
       },

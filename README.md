@@ -51,12 +51,13 @@ After generation, the script can be invoked from any PowerShell terminal with `.
 
 ### Activity Bar view — `tools-cli` section
 
-Appears only when the currently open workspace's root folder is named `tools-cli`. The extension carries the canonical `reinstall-local.ps1` content embedded inline — the three buttons do not depend on any file existing on disk.
+Appears only when the currently open workspace's root folder is named `tools-cli`. The extension carries the canonical script contents embedded inline — the buttons do not depend on any file existing on disk.
 
 | Button | What it does |
 | --- | --- |
 | **Reinstall Local** | Writes the embedded script to a temp `.ps1` and runs `pwsh -NoProfile -ExecutionPolicy Bypass -File <temp> -RepoRoot "<workspace>"`. Streams output live; temp file is cleaned up afterwards. Works whether or not `<repo>/scripts/reinstall-local.ps1` exists on disk. |
 | **Reinstall Local (with MCP)** | Same as above with `-IncludeMcp` appended. |
+| **Reinstall from NuGet** | Uninstalls the global `TALXIS.CLI` tool (typically a `0.0.0-local.*` dev build) and installs the latest published release from nuget.org (`dotnet tool install --global TALXIS.CLI --source https://api.nuget.org/v3/index.json`, so the local `C:\NuGetLocal` feed can't interfere). If `TALXIS.CLI.MCP` is currently installed, it's reinstalled from nuget.org too so both stay on the same version; if it isn't, it's left alone. |
 | **Generate Script** | Writes the same embedded content to `<repo>/scripts/reinstall-local.ps1` (creating `scripts/` if missing). Use this when you want a committed, standalone copy you can run outside VS Code — e.g. CI, agents, or other machines without the extension. The script accepts an optional `-RepoRoot` parameter; standalone runs fall back to `Split-Path -Parent $PSScriptRoot`. |
 
 ### Activity Bar view — `Dataverse` section

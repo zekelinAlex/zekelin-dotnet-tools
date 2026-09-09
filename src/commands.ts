@@ -2249,6 +2249,88 @@ export async function toolsCliReinstallLocal(
   }
 }
 
+// Counterpart of Reinstall Local: drops whatever txc build is installed
+// (usually a 0.0.0-local.* dev pack) and installs the latest release from
+// nuget.org. --source pins resolution to nuget.org so the C:\NuGetLocal feed
+// can't serve a stale local package.
+const TOOLS_CLI_NUGET_REINSTALL_SCRIPT_CONTENT = `#Requires -Version 7
+<#
+.SYNOPSIS
+    Removes the locally installed TALXIS CLI and installs the latest
+    published version from nuget.org instead.
+
+.DESCRIPTION
+    Uninstalls the global 'txc' tool (typically a 0.0.0-local.* dev build)
+    and installs the newest TALXIS.CLI release from nuget.org. If the MCP
+    server (txc-mcp) is currently installed, it is reinstalled from
+    nuget.org too so both tools stay on the same version.
+#>
+[CmdletBinding()]
+param()
+
+$ErrorActionPreference = 'Stop'
+$nugetSource = 'https://api.nuget.org/v3/index.json'
+
+function Invoke-NugetReinstall {
+    param(
+        [string]$PackageId,
+        [string]$CommandName
+    )
+
+    Write-Host "==> $PackageId ($CommandName)" -ForegroundColor Cyan
+
+    Write-Host "    uninstalling existing global tool..."
+    try { dotnet tool uninstall --global $PackageId 2>&1 | Out-Null }
+    catch { Write-Host "    (was not installed)" -ForegroundColor DarkGray }
+
+    Write-Host "    installing latest from nuget.org ..."
+    dotnet tool install --global $PackageId --source $nugetSource
+    if ($LASTEXITCODE -ne 0) { throw "dotnet tool install failed for $PackageId" }
+
+    Write-Host "    done -> $CommandName" -ForegroundColor Green
+}
+
+# Reinstall txc-mcp only when it is already present, so the button doesn't
+# add tools the user never installed.
+$hasMcp = [bool](dotnet tool list --global | Select-String -Quiet -Pattern 'talxis\\.cli\\.mcp')
+
+Invoke-NugetReinstall -PackageId 'TALXIS.CLI' -CommandName 'txc'
+if ($hasMcp) {
+    Invoke-NugetReinstall -PackageId 'TALXIS.CLI.MCP' -CommandName 'txc-mcp'
+}
+
+Write-Host ""
+Write-Host "Installed tools:" -ForegroundColor Cyan
+dotnet tool list --global | Select-String -Pattern 'talxis'
+`;
+
+export async function toolsCliReinstallNuget(
+  outputChannel: vscode.OutputChannel,
+  spawnFn: SpawnFn = defaultSpawn as any
+): Promise<void> {
+  outputChannel.show(true);
+
+  const tempScript = path.join(os.tmpdir(), `zekelin-tools-cli-nuget-${Date.now()}-${process.pid}.ps1`);
+  try {
+    fs.writeFileSync(tempScript, '﻿' + TOOLS_CLI_NUGET_REINSTALL_SCRIPT_CONTENT, 'utf8');
+  } catch (err) {
+    outputChannel.appendLine(`Failed to write temp script: ${(err as Error).message}`);
+    vscode.window.showErrorMessage('Failed to prepare Reinstall from NuGet script.');
+    return;
+  }
+
+  try {
+    const ok = await runPowerShellScript(tempScript, [], 'Reinstall from NuGet', outputChannel, spawnFn);
+    if (ok) {
+      vscode.window.showInformationMessage('Reinstall from NuGet completed.');
+    } else {
+      vscode.window.showErrorMessage('Reinstall from NuGet failed. See output for details.');
+    }
+  } finally {
+    try { fs.unlinkSync(tempScript); } catch { /* ignore cleanup error */ }
+  }
+}
+
 export async function toolsCliGenerateScript(
   outputChannel: vscode.OutputChannel
 ): Promise<void> {

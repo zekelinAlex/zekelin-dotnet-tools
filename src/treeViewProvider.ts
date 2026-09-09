@@ -93,6 +93,7 @@ export class ToolsCliActionsProvider implements vscode.TreeDataProvider<CleanupA
   private actions: CleanupActionItem[] = [
     new CleanupActionItem('Reinstall Local', 'dotnet-cleanup.toolsCliReinstallLocal'),
     new CleanupActionItem('Reinstall Local (with MCP)', 'dotnet-cleanup.toolsCliReinstallLocalWithMcp'),
+    new CleanupActionItem('Reinstall from NuGet', 'dotnet-cleanup.toolsCliReinstallNuget'),
     new CleanupActionItem('Generate Script', 'dotnet-cleanup.toolsCliGenerateScript')
   ];
 
