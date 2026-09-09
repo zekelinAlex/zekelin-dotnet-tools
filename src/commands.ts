@@ -2155,6 +2155,10 @@ dotnet tool list --global | Select-String -Pattern 'talxis'
 
 export const toolsCliVersionsChanged = new vscode.EventEmitter<void>();
 
+export function toolsCliRefreshVersions(): void {
+  toolsCliVersionsChanged.fire();
+}
+
 // Reads the installed txc / txc-mcp versions from `dotnet tool list --global`.
 export async function getInstalledTxcVersions(): Promise<{ cli?: string; mcp?: string }> {
   return new Promise((resolve) => {

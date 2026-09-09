@@ -116,8 +116,9 @@ export class ToolsCliActionsProvider implements vscode.TreeDataProvider<vscode.T
     );
     versionItem.description = versions.mcp ? `txc-mcp ${versions.mcp}` : '';
     versionItem.iconPath = new vscode.ThemeIcon('tag');
-    versionItem.tooltip = 'Installed global dotnet tools (dotnet tool list --global). Refreshes after each reinstall.';
+    versionItem.tooltip = 'Installed global dotnet tools (dotnet tool list --global). Refreshes after each reinstall; click to refresh now.';
     versionItem.contextValue = 'toolsCliVersion';
+    versionItem.command = { command: 'dotnet-cleanup.toolsCliRefreshVersions', title: 'Refresh txc version' };
     return [versionItem, ...this.actions];
   }
 }

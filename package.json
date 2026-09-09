@@ -166,6 +166,10 @@
         "title": "tools-cli: Reinstall from NuGet"
       },
       {
+        "command": "dotnet-cleanup.toolsCliRefreshVersions",
+        "title": "tools-cli: Refresh txc version"
+      },
+      {
         "command": "dotnet-cleanup.toolsCliGenerateScript",
         "title": "tools-cli: Generate Reinstall Script"
       },
