@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { dataverseEnvironmentsChanged, getDataverseEnvironments } from './commands';
+import { dataverseEnvironmentsChanged, getDataverseEnvironments, getInstalledTxcVersions, toolsCliVersionsChanged } from './commands';
 
 export class CleanupActionItem extends vscode.TreeItem {
   constructor(label: string, commandId: string) {
@@ -89,7 +89,10 @@ export class ToolsDevkitTemplatesActionsProvider implements vscode.TreeDataProvi
   }
 }
 
-export class ToolsCliActionsProvider implements vscode.TreeDataProvider<CleanupActionItem> {
+export class ToolsCliActionsProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+  private _onDidChangeTreeData = new vscode.EventEmitter<vscode.TreeItem | undefined | void>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
   private actions: CleanupActionItem[] = [
     new CleanupActionItem('Reinstall Local', 'dotnet-cleanup.toolsCliReinstallLocal'),
     new CleanupActionItem('Reinstall Local (with MCP)', 'dotnet-cleanup.toolsCliReinstallLocalWithMcp'),
@@ -97,12 +100,25 @@ export class ToolsCliActionsProvider implements vscode.TreeDataProvider<CleanupA
     new CleanupActionItem('Generate Script', 'dotnet-cleanup.toolsCliGenerateScript')
   ];
 
-  getTreeItem(element: CleanupActionItem): vscode.TreeItem {
+  constructor() {
+    toolsCliVersionsChanged.event(() => this._onDidChangeTreeData.fire());
+  }
+
+  getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
     return element;
   }
 
-  getChildren(): CleanupActionItem[] {
-    return this.actions;
+  async getChildren(): Promise<vscode.TreeItem[]> {
+    const versions = await getInstalledTxcVersions();
+    const versionItem = new vscode.TreeItem(
+      versions.cli ? `txc ${versions.cli}` : 'txc not installed',
+      vscode.TreeItemCollapsibleState.None
+    );
+    versionItem.description = versions.mcp ? `txc-mcp ${versions.mcp}` : '';
+    versionItem.iconPath = new vscode.ThemeIcon('tag');
+    versionItem.tooltip = 'Installed global dotnet tools (dotnet tool list --global). Refreshes after each reinstall.';
+    versionItem.contextValue = 'toolsCliVersion';
+    return [versionItem, ...this.actions];
   }
 }
 

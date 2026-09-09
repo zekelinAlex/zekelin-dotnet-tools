@@ -53,6 +53,8 @@ After generation, the script can be invoked from any PowerShell terminal with `.
 
 Appears only when the currently open workspace's root folder is named `tools-cli`. The extension carries the canonical script contents embedded inline — the buttons do not depend on any file existing on disk.
 
+The first row of the section is a read-only version indicator: `txc <version>` (with `txc-mcp <version>` as its description when the MCP server is installed too), read from `dotnet tool list --global`. It refreshes automatically after every Reinstall button finishes, so you can always tell whether a `0.0.0-local.*` dev build or a nuget.org release is currently active.
+
 | Button | What it does |
 | --- | --- |
 | **Reinstall Local** | Writes the embedded script to a temp `.ps1` and runs `pwsh -NoProfile -ExecutionPolicy Bypass -File <temp> -RepoRoot "<workspace>"`. Streams output live; temp file is cleaned up afterwards. Works whether or not `<repo>/scripts/reinstall-local.ps1` exists on disk. |

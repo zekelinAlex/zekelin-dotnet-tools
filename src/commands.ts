@@ -2153,6 +2153,26 @@ Write-Host "Installed tools:" -ForegroundColor Cyan
 dotnet tool list --global | Select-String -Pattern 'talxis'
 `;
 
+export const toolsCliVersionsChanged = new vscode.EventEmitter<void>();
+
+// Reads the installed txc / txc-mcp versions from `dotnet tool list --global`.
+export async function getInstalledTxcVersions(): Promise<{ cli?: string; mcp?: string }> {
+  return new Promise((resolve) => {
+    defaultExecFile('dotnet', ['tool', 'list', '--global'], { windowsHide: true }, (error, stdout) => {
+      if (error) { resolve({}); return; }
+      const res: { cli?: string; mcp?: string } = {};
+      for (const line of stdout.toString().split(/\r?\n/)) {
+        const tokens = line.trim().split(/\s+/);
+        if (tokens.length < 2) { continue; }
+        const id = tokens[0].toLowerCase();
+        if (id === 'talxis.cli') { res.cli = tokens[1]; }
+        if (id === 'talxis.cli.mcp') { res.mcp = tokens[1]; }
+      }
+      resolve(res);
+    });
+  });
+}
+
 export function getToolsCliRoot(): string | undefined {
   for (const folder of vscode.workspace.workspaceFolders || []) {
     if (path.basename(folder.uri.fsPath) === TOOLS_CLI_FOLDER_NAME) {
@@ -2246,6 +2266,7 @@ export async function toolsCliReinstallLocal(
     }
   } finally {
     try { fs.unlinkSync(tempScript); } catch { /* ignore cleanup error */ }
+    toolsCliVersionsChanged.fire();
   }
 }
 
@@ -2328,6 +2349,7 @@ export async function toolsCliReinstallNuget(
     }
   } finally {
     try { fs.unlinkSync(tempScript); } catch { /* ignore cleanup error */ }
+    toolsCliVersionsChanged.fire();
   }
 }
 
