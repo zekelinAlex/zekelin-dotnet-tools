@@ -132,4 +132,4 @@ Write-Host "  Done" -ForegroundColor Green
 Write-Host "`n=== Clearing NuGet cache ===" -ForegroundColor Cyan
 dotnet nuget locals all --clear
 
-Write-Host "`nAll done! (finished at $(Get-Date -Format 'HH:mm:ss'))" -ForegroundColor Green
+Write-Host "`nAll done! (finished at $((Get-Date).ToShortTimeString()))" -ForegroundColor Green

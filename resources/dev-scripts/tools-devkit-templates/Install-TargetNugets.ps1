@@ -155,4 +155,4 @@ foreach ($id in $packageIds) {
     }
 }
 
-Write-Host "`nAll done! (finished at $(Get-Date -Format 'HH:mm:ss'))" -ForegroundColor Green
+Write-Host "`nAll done! (finished at $((Get-Date).ToShortTimeString()))" -ForegroundColor Green
