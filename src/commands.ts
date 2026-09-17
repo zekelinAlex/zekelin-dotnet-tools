@@ -22,6 +22,12 @@ function quoteShellArg(a: string): string {
   return a;
 }
 
+// VS Code output channels render ANSI color codes as literal esc[31;1m junk,
+// so strip them from everything we stream there.
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+}
+
 type GitResult = { stdout: string; stderr: string; error: Error | null };
 type GitRunner = (args: string[], cwd: string) => Promise<GitResult>;
 
@@ -317,7 +323,7 @@ export async function dotnetPublish(
           });
 
           const stream = (chunk: Buffer | string) => {
-            const text = chunk.toString();
+            const text = stripAnsi(chunk.toString());
             for (const line of text.split(/\r?\n/)) {
               if (line.length > 0) {
                 outputChannel.appendLine(line);
@@ -999,14 +1005,14 @@ async function runTxcCapture(
         let stdout = '';
         let stderr = '';
         const streamOut = (chunk: Buffer | string) => {
-          const text = chunk.toString();
+          const text = stripAnsi(chunk.toString());
           stdout += text;
           for (const line of text.split(/\r?\n/)) {
             if (line.length > 0) { outputChannel.appendLine(line); }
           }
         };
         const streamErr = (chunk: Buffer | string) => {
-          const text = chunk.toString();
+          const text = stripAnsi(chunk.toString());
           stderr += text;
           for (const line of text.split(/\r?\n/)) {
             if (line.length > 0) { outputChannel.appendLine(line); }
@@ -1468,7 +1474,7 @@ function runStreamedDotnet(
     const child = spawnFn('dotnet', args, { shell: true });
     const sub = token.onCancellationRequested(() => child.kill());
     const stream = (chunk: Buffer | string) => {
-      const text = chunk.toString();
+      const text = stripAnsi(chunk.toString());
       for (const line of text.split(/\r?\n/)) {
         if (line.length > 0) {
           outputChannel.appendLine(line);
@@ -1848,7 +1854,7 @@ export async function dataverseSolutionUnpack(
       const child = spawnFn('txc', quoted, { shell: true });
 
       const stream = (chunk: Buffer | string) => {
-        const text = chunk.toString();
+        const text = stripAnsi(chunk.toString());
         for (const line of text.split(/\r?\n/)) {
           if (line.length > 0) { outputChannel.appendLine(line); }
         }
@@ -2100,6 +2106,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Plain output: the VS Code output channel can't render ANSI color codes.
+if ($PSStyle) { $PSStyle.OutputRendering = 'PlainText' }
 
 if (-not $RepoRoot) {
     $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -2121,10 +2129,14 @@ function Invoke-Reinstall {
 
     Write-Host "==> $PackageId ($CommandName)" -ForegroundColor Cyan
 
-    # 1. Uninstall the current global tool (ignore 'not installed').
-    Write-Host "    uninstalling existing global tool..."
+    # 1. Remove every installed version: uninstall, then wipe the tool store
+    #    and shim, so a corrupted multi-version install can't block step 3.
+    Write-Host "    removing existing global tool (all versions)..."
     try { dotnet tool uninstall --global $PackageId 2>&1 | Out-Null }
     catch { Write-Host "    (was not installed)" -ForegroundColor DarkGray }
+    $toolsDir = Join-Path $HOME '.dotnet/tools'
+    Remove-Item (Join-Path $toolsDir ('.store/' + $PackageId.ToLowerInvariant())) -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $toolsDir ($CommandName + '.exe')) -Force -ErrorAction SilentlyContinue
 
     # 2. Pack the local project under the unique dev version.
     Write-Host "    packing $version ..."
@@ -2220,7 +2232,7 @@ async function runPowerShellScript(
 
         const child = spawnFn('pwsh', args.map(quoteShellArg), { shell: true });
         const stream = (chunk: Buffer | string) => {
-          const text = chunk.toString();
+          const text = stripAnsi(chunk.toString());
           for (const line of text.split(/\r?\n/)) {
             if (line.length > 0) { outputChannel.appendLine(line); }
           }
@@ -2310,6 +2322,7 @@ const TOOLS_CLI_NUGET_REINSTALL_SCRIPT_CONTENT = `#Requires -Version 7
 param()
 
 $ErrorActionPreference = 'Stop'
+if ($PSStyle) { $PSStyle.OutputRendering = 'PlainText' }
 $nugetSource = 'https://api.nuget.org/v3/index.json'
 
 function Invoke-NugetReinstall {
@@ -2320,9 +2333,14 @@ function Invoke-NugetReinstall {
 
     Write-Host "==> $PackageId ($CommandName)" -ForegroundColor Cyan
 
-    Write-Host "    uninstalling existing global tool..."
+    # Remove every installed version: uninstall, then wipe the tool store
+    # and shim, so a corrupted multi-version install can't block the install.
+    Write-Host "    removing existing global tool (all versions)..."
     try { dotnet tool uninstall --global $PackageId 2>&1 | Out-Null }
     catch { Write-Host "    (was not installed)" -ForegroundColor DarkGray }
+    $toolsDir = Join-Path $HOME '.dotnet/tools'
+    Remove-Item (Join-Path $toolsDir ('.store/' + $PackageId.ToLowerInvariant())) -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $toolsDir ($CommandName + '.exe')) -Force -ErrorAction SilentlyContinue
 
     Write-Host "    installing latest from nuget.org ..."
     dotnet tool install --global $PackageId --source $nugetSource
