@@ -1811,8 +1811,9 @@ async function packProjectsIntoLocalFeed(
         await postPack({ version, localFeed, packageIds, outputChannel, progress, token, spawnFn });
       }
 
-      outputChannel.appendLine('\nAll done!');
-      vscode.window.showInformationMessage('Install targets Nugets completed.');
+      const finishedAt = new Date().toLocaleTimeString();
+      outputChannel.appendLine(`\nAll done! (finished at ${finishedAt})`);
+      vscode.window.showInformationMessage(`Install targets Nugets completed at ${finishedAt}.`);
     }
   );
 }
@@ -2232,7 +2233,7 @@ async function runPowerShellScript(
         });
         child.on('close', (code) => {
           if (code === 0) {
-            outputChannel.appendLine(`Done.`);
+            outputChannel.appendLine(`Done. (finished at ${new Date().toLocaleTimeString()})`);
             resolve(true);
           } else {
             outputChannel.appendLine(`Script exited with code ${code}.`);
