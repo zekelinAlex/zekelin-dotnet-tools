@@ -1064,14 +1064,119 @@ function normalizeEnvironmentUrl(url: string): string {
   return url.trim().toLowerCase().replace(/\/+$/, '');
 }
 
-// txc solution/package imports address the target environment through a txc
-// profile, not a --environment flag, so map the cached environment to the
-// profile whose connection points at the same environment URL (or id).
-async function resolveTxcProfileForEnvironment(
+// txc env create can finish without an environmentUrl; txc env list --filter
+// can't match ids, so the id is compared here.
+async function lookupEnvironmentUrl(
   env: DataverseEnvironment,
   outputChannel: vscode.OutputChannel,
   spawnFn: SpawnFn
 ): Promise<string | undefined> {
+  const args = ['env', 'list', '--format', 'json'];
+  if (!env.id && env.name) args.push('--filter', env.name);
+  const res = await runTxcCapture(args, outputChannel, 'Resolving environment URL', spawnFn);
+  if (!res.ok) return undefined;
+
+  const wantedId = env.id.trim().toLowerCase();
+  const wantedName = env.name.trim().toLowerCase();
+  const found = (parseTxcJsonArray(res.stdout) ?? []).find((e: any) =>
+    wantedId
+      ? typeof e.environmentId === 'string' && e.environmentId.toLowerCase() === wantedId
+      : typeof e.displayName === 'string' && e.displayName.toLowerCase() === wantedName);
+  return found && typeof found.environmentUrl === 'string' && found.environmentUrl ? found.environmentUrl : undefined;
+}
+
+function updateEnvironmentInGlobal(target: DataverseEnvironment, updated: DataverseEnvironment): void {
+  const cfg = readGlobalConfig();
+  const list: DataverseEnvironment[] = Array.isArray(cfg.environments) ? cfg.environments : [];
+  const index = list.findIndex((e) => e.id === target.id && e.url === target.url && e.name === target.name);
+  if (index === -1) return;
+  list[index] = updated;
+  cfg.environments = list;
+  writeGlobalConfig(cfg);
+  dataverseEnvironmentsChanged.fire();
+}
+
+async function ensureEnvironmentUrl(
+  env: DataverseEnvironment,
+  outputChannel: vscode.OutputChannel,
+  spawnFn: SpawnFn
+): Promise<DataverseEnvironment> {
+  if (env.url) return env;
+  const url = await lookupEnvironmentUrl(env, outputChannel, spawnFn);
+  if (!url) return env;
+  const updated: DataverseEnvironment = { ...env, url };
+  updateEnvironmentInGlobal(env, updated);
+  outputChannel.appendLine(`Saved missing URL for "${env.name || env.id}": ${url}`);
+  return updated;
+}
+
+function uniqueTxcName(env: DataverseEnvironment, taken: Set<string>): string {
+  const source = env.name || env.url.replace(/^https?:\/\//i, '').split('.')[0];
+  const base = source.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'dataverse';
+  let name = base;
+  for (let i = 2; taken.has(name); i++) name = `${base}-${i}`;
+  return name;
+}
+
+// Binds an already stored credential to a new connection, so no browser
+// sign-in is needed; the --url one-liner is only the fallback when txc has no credential yet.
+async function createTxcProfileForEnvironment(
+  env: DataverseEnvironment,
+  taken: Set<string>,
+  outputChannel: vscode.OutputChannel,
+  spawnFn: SpawnFn
+): Promise<string | undefined> {
+  const name = uniqueTxcName(env, taken);
+
+  const authRes = await runTxcCapture(['config', 'auth', 'list'], outputChannel, 'Listing txc credentials', spawnFn);
+  const credentials = (authRes.ok ? parseTxcJsonArray(authRes.stdout) : undefined) ?? [];
+  let authId: string | undefined;
+  if (credentials.length === 1) {
+    authId = String(credentials[0].id);
+  } else if (credentials.length > 1) {
+    const picked = await vscode.window.showQuickPick(
+      credentials.map((c: any) => ({ label: String(c.id), description: typeof c.kind === 'string' ? c.kind : '' })),
+      { placeHolder: `Select the txc credential to use for "${env.name || env.url}"` }
+    );
+    if (!picked) return undefined;
+    authId = picked.label;
+  }
+
+  if (!authId) {
+    const res = await runTxcCapture(
+      ['config', 'profile', 'create', '--url', env.url, '--name', name, '--format', 'json'],
+      outputChannel,
+      `Creating txc profile "${name}" (sign-in required)`,
+      spawnFn
+    );
+    return res.ok ? String(parseTxcJsonObject(res.stdout)?.id ?? name) : undefined;
+  }
+
+  const connectionArgs = ['config', 'connection', 'create', name, '--provider', 'Dataverse', '--url', env.url, '--format', 'json'];
+  if (env.id) connectionArgs.push('--env-id', env.id);
+  const connectionRes = await runTxcCapture(connectionArgs, outputChannel, `Creating txc connection "${name}"`, spawnFn);
+  if (!connectionRes.ok) return undefined;
+
+  const profileRes = await runTxcCapture(
+    ['config', 'profile', 'create', '--name', name, '--auth', authId, '--connection', name, '--format', 'json'],
+    outputChannel,
+    `Creating txc profile "${name}"`,
+    spawnFn
+  );
+  return profileRes.ok ? name : undefined;
+}
+
+// txc solution/package imports address the target environment through a txc
+// profile, not a --environment flag, so map the cached environment to the
+// profile whose connection points at the same environment URL (or id), and
+// create that profile on the fly when it does not exist yet.
+async function resolveTxcProfileForEnvironment(
+  cachedEnv: DataverseEnvironment,
+  outputChannel: vscode.OutputChannel,
+  spawnFn: SpawnFn
+): Promise<string | undefined> {
+  const env = await ensureEnvironmentUrl(cachedEnv, outputChannel, spawnFn);
+
   const profilesRes = await runTxcCapture(
     ['config', 'profile', 'list', '--format', 'json'],
     outputChannel,
@@ -1104,14 +1209,25 @@ async function resolveTxcProfileForEnvironment(
 
   const candidates = profiles.filter((p: any) => matchingConnectionIds.has(String(p.connectionRef)));
   const picked = candidates.find((p: any) => p.active === true) ?? candidates[0];
-  if (!picked) {
-    const hint = env.url || env.id || env.name;
+  if (picked) return String(picked.id);
+
+  const label = env.name || env.url || env.id;
+  if (!env.url) {
     vscode.window.showErrorMessage(
-      `No txc profile targets "${env.name || hint}". Create one first: txc config profile create --url ${env.url || '<environment-url>'}`
+      `No txc profile targets "${label}" and its URL could not be resolved via txc env list. Add the URL in the environments config and retry.`
     );
     return undefined;
   }
-  return String(picked.id);
+
+  outputChannel.appendLine(`No txc profile targets "${label}", creating one.`);
+  const taken = new Set<string>([...profiles, ...connections].map((x: any) => String(x.id).toLowerCase()));
+  const created = await createTxcProfileForEnvironment(env, taken, outputChannel, spawnFn);
+  if (!created) {
+    vscode.window.showErrorMessage(`Failed to create a txc profile for "${label}". See output for details.`);
+    return undefined;
+  }
+  vscode.window.showInformationMessage(`Created txc profile "${created}" for "${label}".`);
+  return created;
 }
 
 export async function createDataverseEnvironment(
@@ -1156,6 +1272,7 @@ export async function createDataverseEnvironment(
     id: parsed.id,
     url: parsed.url
   };
+  if (!env.url) env.url = (await lookupEnvironmentUrl(env, outputChannel, spawnFn)) ?? '';
 
   const cfg = readGlobalConfig();
   const list: DataverseEnvironment[] = Array.isArray(cfg.environments) ? cfg.environments : [];

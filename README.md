@@ -85,7 +85,7 @@ The buttons sit at the top; saved environments are listed below them as read-onl
 | Button | What it does |
 | --- | --- |
 | **Add environment** | Prompts for `name` → `id` (GUID, optional) → `url`, then appends a `{name, id, url}` entry to the global config. |
-| **Create environment** | Prompts only for `name`, then runs `txc env create --name "<name>" --currency EUR --region europe --type Developer --wait --format json`. On success, parses `environmentUrl` / `environmentId` / `displayName` from txc's JSON output and saves them to the global config automatically. |
+| **Create environment** | Prompts only for `name`, then runs `txc env create --name "<name>" --currency EUR --region europe --type Developer --wait --format json`. On success, parses `environmentUrl` / `environmentId` / `displayName` from txc's JSON output and saves them to the global config automatically. txc can report the environment without a URL, in that case it's looked up via `txc env list`. |
 | **Delete environment** | Shows a QuickPick of saved environments, asks for modal confirmation, then runs `txc env delete "<id>" --yes` (queued server-side, returns immediately). If the cached entry has only a URL, the id is first resolved via `txc env list --format json --filter "<url>"`. On success the entry is removed from the global config. If txc reports the environment as not found (`not found` / `does not exist` / `EnvironmentNotFound` / `no environment` in the output), the entry is also removed (it's already gone server-side). Any other failure leaves the config untouched so you can retry. |
 | **Reveal config** | Opens the global config file in the editor (creates an empty one if it doesn't exist yet) so you can edit/reorder/comment-clean entries by hand. |
 
@@ -103,7 +103,7 @@ Right-click any file or folder in the Explorer; the relevant entries only appear
 | **Discard** | any file or folder with uncommitted changes | Asks for modal confirmation, then `git restore --source=HEAD --staged --worktree -- <path>` (reverts tracked changes) and `git clean -fd -- <path>` (removes untracked files). |
 | **Generate Snippet Prefixes** | a `.vscode` folder | Parses every `*.code-snippets` file inside (tolerating JSON comments and trailing commas), extracts each snippet's `prefix`, and writes them line-by-line to `snippet-prefixes/<name>.ps1` at the workspace root. |
 | **Dataverse Solutions unpack** | a `.zip` file | Runs `txc env solution unpack "<zip>" --output "<zip-without-ext>"` (creates a folder next to the zip with the same base name). On non-zero exit it retries automatically with `--managed`. |
-| **Dataverse Solutions Import** | a `.zip` file | Shows the saved-environments QuickPick (with an inline `+ Add new environment...` option). txc targets environments through profiles, so the extension matches the picked environment's URL/id against `txc config profile list` + `txc config connection list` and runs `txc env solution import "<zip>" --wait --profile "<profile>"`. If no profile targets that environment, it errors with a hint to run `txc config profile create --url <env-url>` first. |
+| **Dataverse Solutions Import** | a `.zip` file | Shows the saved-environments QuickPick (with an inline `+ Add new environment...` option). txc targets environments through profiles, so the extension matches the picked environment's URL/id against `txc config profile list` + `txc config connection list` and runs `txc env solution import "<zip>" --wait --profile "<profile>"`. If the cached environment has no URL, it's resolved via `txc env list` and saved back to the global config. If no profile targets that environment, one is created on the fly: with a stored credential it runs `txc config connection create` + `txc config profile create --auth <credential> --connection <name>` (no sign-in, a QuickPick appears when several credentials exist), otherwise it falls back to `txc config profile create --url <env-url>` (interactive sign-in). |
 | **Dataverse Package deploy** | a `.zip` file | Same environment picker and profile matching as above, then runs `txc env package import "<zip>" --profile "<profile>"`. |
 | **Send to Local NuGet Feed** *(top of menu)* | a `.nupkg` file | First time: asks for a local feed folder path, validates it exists, registers it as a NuGet source if not already (`dotnet nuget add source ...`), copies the package into it, and saves the path to the global config (`localNugetFeed` key). Subsequent times: copies straight to the saved folder, no prompt. If the saved folder gets deleted between runs, the prompt comes back. |
 
@@ -160,7 +160,7 @@ The extension sets `window.title` (user-global) to `${dirty}${rootName}${separat
 - Windows (uses `taskkill` and PowerShell with `RunAs`).
 - `dotnet` CLI available on `PATH`.
 - `git` CLI available on `PATH` (for Push / Discard).
-- `txc` (TALXIS CLI, https://github.com/TALXIS/tools-cli) on `PATH` for the Dataverse features, with a txc profile per target environment (`txc config profile create --url <env-url>`) for solution import / package deploy.
+- `txc` (TALXIS CLI, https://github.com/TALXIS/tools-cli) on `PATH` for the Dataverse features, with at least one stored credential (`txc config auth login`); solution import / package deploy create the per-environment txc profile automatically.
 - VS Code `^1.74.0`.
 
 ## Build & install
