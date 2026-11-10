@@ -2,8 +2,9 @@ import * as vscode from 'vscode';
 import { dataverseEnvironmentKey, dataverseEnvironmentsChanged, getActiveDataverseEnvironmentKey, getDataverseEnvironments, getInstalledTxcVersions, toolsCliVersionsChanged } from './commands';
 
 export class CleanupActionItem extends vscode.TreeItem {
-  constructor(label: string, commandId: string) {
+  constructor(label: string, commandId: string, tooltip?: string) {
     super(label, vscode.TreeItemCollapsibleState.None);
+    this.tooltip = tooltip;
     this.command = {
       command: commandId,
       title: label
@@ -13,9 +14,9 @@ export class CleanupActionItem extends vscode.TreeItem {
 
 export class CleanupActionsProvider implements vscode.TreeDataProvider<CleanupActionItem> {
   private actions: CleanupActionItem[] = [
-    new CleanupActionItem('Clear NuGet Cache', 'dotnet-cleanup.clearNugetCache'),
-    new CleanupActionItem('Kill .NET Processes', 'dotnet-cleanup.killDotnetProcesses'),
-    new CleanupActionItem('Kill VBCSCompiler', 'dotnet-cleanup.killVBCSCompiler')
+    new CleanupActionItem('Clear NuGet Cache', 'dotnet-cleanup.clearNugetCache', 'dotnet nuget locals all --clear: wipes every local NuGet cache'),
+    new CleanupActionItem('Kill .NET Processes', 'dotnet-cleanup.killDotnetProcesses', 'taskkill /IM dotnet.exe /F: ends every running dotnet.exe'),
+    new CleanupActionItem('Kill VBCSCompiler', 'dotnet-cleanup.killVBCSCompiler', 'taskkill /IM VBCSCompiler.exe /F: ends the Roslyn compiler that often locks files in bin/obj')
   ];
 
   getTreeItem(element: CleanupActionItem): vscode.TreeItem {
@@ -29,10 +30,10 @@ export class CleanupActionsProvider implements vscode.TreeDataProvider<CleanupAc
 
 export class GitActionsProvider implements vscode.TreeDataProvider<CleanupActionItem> {
   private actions: CleanupActionItem[] = [
-    new CleanupActionItem('Undo last commit', 'dotnet-cleanup.undoLastCommit'),
-    new CleanupActionItem('Resend last commit', 'dotnet-cleanup.resendLastCommit'),
-    new CleanupActionItem('Combine commits', 'dotnet-cleanup.combineCommits'),
-    new CleanupActionItem('Git Wipe', 'dotnet-cleanup.gitWipe')
+    new CleanupActionItem('Undo last commit', 'dotnet-cleanup.undoLastCommit', 'git reset --soft HEAD~1: removes the last commit, its changes stay staged'),
+    new CleanupActionItem('Resend last commit', 'dotnet-cleanup.resendLastCommit', 'git commit --amend --date=now: asks for a new message (empty keeps the current one) and refreshes the timestamp. Needs git push --force if already pushed'),
+    new CleanupActionItem('Combine commits', 'dotnet-cleanup.combineCommits', 'Squashes all commits of the current branch into one (git reset --soft + git commit), keeping the first commit message'),
+    new CleanupActionItem('Git Wipe', 'dotnet-cleanup.gitWipe', 'git clean -Xdf: deletes gitignored files (bin, obj, node_modules, ...) and empty folders, after a preview')
   ];
 
   getTreeItem(element: CleanupActionItem): vscode.TreeItem {
@@ -46,8 +47,8 @@ export class GitActionsProvider implements vscode.TreeDataProvider<CleanupAction
 
 export class DevkitBuildActionsProvider implements vscode.TreeDataProvider<CleanupActionItem> {
   private actions: CleanupActionItem[] = [
-    new CleanupActionItem('Install targets Nugets', 'dotnet-cleanup.installTargetNugets'),
-    new CleanupActionItem('Generate Install Script', 'dotnet-cleanup.generateInstallScript')
+    new CleanupActionItem('Install targets Nugets', 'dotnet-cleanup.installTargetNugets', 'Packs src/Dataverse/*.csproj and the Sdk project at the configured version and copies the .nupkg files into the local NuGet feed'),
+    new CleanupActionItem('Generate Install Script', 'dotnet-cleanup.generateInstallScript', 'Writes dev-scripts/Install-TargetNugets.ps1, a standalone copy of Install targets Nugets for terminals and agents')
   ];
 
   getTreeItem(element: CleanupActionItem): vscode.TreeItem {
@@ -61,8 +62,8 @@ export class DevkitBuildActionsProvider implements vscode.TreeDataProvider<Clean
 
 export class PlatformMetadataActionsProvider implements vscode.TreeDataProvider<CleanupActionItem> {
   private actions: CleanupActionItem[] = [
-    new CleanupActionItem('Install targets Nugets', 'dotnet-cleanup.platformMetadataInstallNugets'),
-    new CleanupActionItem('Generate Install Script', 'dotnet-cleanup.platformMetadataGenerateScript')
+    new CleanupActionItem('Install targets Nugets', 'dotnet-cleanup.platformMetadataInstallNugets', 'Packs every .csproj under src/ at the configured version and copies the .nupkg files into the local NuGet feed'),
+    new CleanupActionItem('Generate Install Script', 'dotnet-cleanup.platformMetadataGenerateScript', 'Writes dev-scripts/Install-TargetNugets.ps1, a standalone copy of Install targets Nugets for terminals and agents')
   ];
 
   getTreeItem(element: CleanupActionItem): vscode.TreeItem {
@@ -76,8 +77,8 @@ export class PlatformMetadataActionsProvider implements vscode.TreeDataProvider<
 
 export class ToolsDevkitTemplatesActionsProvider implements vscode.TreeDataProvider<CleanupActionItem> {
   private actions: CleanupActionItem[] = [
-    new CleanupActionItem('Install targets Nugets', 'dotnet-cleanup.toolsDevkitTemplatesInstallNugets'),
-    new CleanupActionItem('Generate Install Script', 'dotnet-cleanup.toolsDevkitTemplatesGenerateScript')
+    new CleanupActionItem('Install targets Nugets', 'dotnet-cleanup.toolsDevkitTemplatesInstallNugets', 'Packs every packable .csproj under src/ (templates/ excluded) at the configured version and copies the .nupkg files into the local NuGet feed'),
+    new CleanupActionItem('Generate Install Script', 'dotnet-cleanup.toolsDevkitTemplatesGenerateScript', 'Writes dev-scripts/Install-TargetNugets.ps1, a standalone copy of Install targets Nugets for terminals and agents')
   ];
 
   getTreeItem(element: CleanupActionItem): vscode.TreeItem {
@@ -94,10 +95,10 @@ export class ToolsCliActionsProvider implements vscode.TreeDataProvider<vscode.T
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   private actions: CleanupActionItem[] = [
-    new CleanupActionItem('Reinstall Local', 'dotnet-cleanup.toolsCliReinstallLocal'),
-    new CleanupActionItem('Reinstall Local (with MCP)', 'dotnet-cleanup.toolsCliReinstallLocalWithMcp'),
-    new CleanupActionItem('Reinstall from NuGet', 'dotnet-cleanup.toolsCliReinstallNuget'),
-    new CleanupActionItem('Generate Script', 'dotnet-cleanup.toolsCliGenerateScript')
+    new CleanupActionItem('Reinstall Local', 'dotnet-cleanup.toolsCliReinstallLocal', 'Builds txc from this repo and installs it as the global tool, wiping cached dotnet new templates'),
+    new CleanupActionItem('Reinstall Local (with MCP)', 'dotnet-cleanup.toolsCliReinstallLocalWithMcp', 'Same as Reinstall Local, plus the txc-mcp server'),
+    new CleanupActionItem('Reinstall from NuGet', 'dotnet-cleanup.toolsCliReinstallNuget', 'Replaces the installed txc (and txc-mcp if present) with the latest release from nuget.org, templates too'),
+    new CleanupActionItem('Generate Script', 'dotnet-cleanup.toolsCliGenerateScript', 'Writes scripts/reinstall-local.ps1 so you can run Reinstall Local outside VS Code')
   ];
 
   constructor() {
@@ -145,6 +146,7 @@ export class DataverseActionsProvider implements vscode.TreeDataProvider<vscode.
     const addBtn = new vscode.TreeItem('Add environment', vscode.TreeItemCollapsibleState.None);
     addBtn.command = { command: 'dotnet-cleanup.addDataverseEnvironment', title: 'Add environment' };
     addBtn.iconPath = new vscode.ThemeIcon('add');
+    addBtn.tooltip = 'Adds an existing environment to the list by hand: name, optional id, url';
     addBtn.contextValue = 'dataverseAddEnvironment';
     items.push(addBtn);
 
