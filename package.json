@@ -129,6 +129,11 @@
         "icon": "$(trash)"
       },
       {
+        "command": "dotnet-cleanup.syncDataverseEnvironments",
+        "title": "Sync Dataverse environments",
+        "icon": "$(sync)"
+      },
+      {
         "command": "dotnet-cleanup.openInNewWindow",
         "title": "Open in New Window",
         "icon": "$(empty-window)"

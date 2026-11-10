@@ -162,6 +162,13 @@ export class DataverseActionsProvider implements vscode.TreeDataProvider<vscode.
     deleteBtn.contextValue = 'dataverseDeleteEnvironment';
     items.push(deleteBtn);
 
+    const syncBtn = new vscode.TreeItem('Sync environments', vscode.TreeItemCollapsibleState.None);
+    syncBtn.command = { command: 'dotnet-cleanup.syncDataverseEnvironments', title: 'Sync environments' };
+    syncBtn.iconPath = new vscode.ThemeIcon('sync');
+    syncBtn.tooltip = 'txc env list: add new environments, drop ones that no longer exist';
+    syncBtn.contextValue = 'dataverseSyncEnvironments';
+    items.push(syncBtn);
+
     const revealBtn = new vscode.TreeItem('Reveal config', vscode.TreeItemCollapsibleState.None);
     revealBtn.command = { command: 'dotnet-cleanup.revealDataverseEnvironmentsConfig', title: 'Reveal config' };
     revealBtn.iconPath = new vscode.ThemeIcon('go-to-file');

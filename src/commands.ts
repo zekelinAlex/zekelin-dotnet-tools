@@ -1297,6 +1297,91 @@ function removeEnvironmentFromGlobal(target: DataverseEnvironment): boolean {
   return true;
 }
 
+export type DataverseSyncResult = {
+  environments: DataverseEnvironment[];
+  added: DataverseEnvironment[];
+  removed: DataverseEnvironment[];
+  updated: DataverseEnvironment[];
+};
+
+// Tenant list is the source of truth; cached entries keep their order, new ones go to the end.
+export function mergeDataverseEnvironments(cached: DataverseEnvironment[], remote: any[]): DataverseSyncResult {
+  const remoteEnvs: DataverseEnvironment[] = remote
+    .filter((e) => e && typeof e === 'object')
+    .map((e: any) => ({
+      name: typeof e.displayName === 'string' ? e.displayName : '',
+      id: typeof e.environmentId === 'string' ? e.environmentId : '',
+      url: typeof e.environmentUrl === 'string' ? e.environmentUrl : ''
+    }))
+    .filter((e) => e.id || e.url);
+
+  const unmatched = new Set(remoteEnvs);
+  const matches = (c: DataverseEnvironment, r: DataverseEnvironment) =>
+    (!!c.id && !!r.id && c.id.toLowerCase() === r.id.toLowerCase()) ||
+    (!!c.url && !!r.url && normalizeEnvironmentUrl(c.url) === normalizeEnvironmentUrl(r.url));
+
+  const environments: DataverseEnvironment[] = [];
+  const removed: DataverseEnvironment[] = [];
+  const updated: DataverseEnvironment[] = [];
+  for (const c of cached) {
+    const r = [...unmatched].find((x) => matches(c, x));
+    if (!r) {
+      removed.push(c);
+      continue;
+    }
+    unmatched.delete(r);
+    const merged: DataverseEnvironment = { name: r.name || c.name, id: r.id || c.id, url: r.url || c.url };
+    if (merged.name !== c.name || merged.id !== c.id || merged.url !== c.url) updated.push(merged);
+    environments.push(merged);
+  }
+
+  const added = [...unmatched].sort((a, b) => a.name.localeCompare(b.name));
+  environments.push(...added);
+  return { environments, added, removed, updated };
+}
+
+export async function syncDataverseEnvironments(
+  outputChannel: vscode.OutputChannel,
+  spawnFn: SpawnFn = defaultSpawn as any
+): Promise<DataverseSyncResult | undefined> {
+  migrateEnvironmentsToGlobalIfNeeded(outputChannel);
+  outputChannel.show(true);
+
+  const res = await runTxcCapture(['env', 'list', '--format', 'json'], outputChannel, 'Syncing Dataverse environments', spawnFn);
+  const remote = res.ok ? parseTxcJsonArray(res.stdout) : undefined;
+  if (!remote) {
+    outputChannel.appendLine(`Sync failed (exit ${res.code}). Cache left unchanged.`);
+    vscode.window.showErrorMessage('Failed to list Dataverse environments via txc. Cache left unchanged.');
+    return undefined;
+  }
+
+  const cached = getDataverseEnvironments();
+  const result = mergeDataverseEnvironments(cached, remote);
+
+  // An empty tenant list usually means a wrong credential, so don't wipe the cache silently.
+  if (result.environments.length === 0 && cached.length > 0) {
+    const confirm = await vscode.window.showWarningMessage(
+      `txc returned no environments. Remove all ${cached.length} cached environment(s)?`,
+      { modal: true },
+      'Remove all'
+    );
+    if (confirm !== 'Remove all') return undefined;
+  }
+
+  const cfg = readGlobalConfig();
+  cfg.environments = result.environments;
+  writeGlobalConfig(cfg);
+  dataverseEnvironmentsChanged.fire();
+
+  for (const e of result.added) outputChannel.appendLine(`+ ${e.name} (${e.url || e.id})`);
+  for (const e of result.removed) outputChannel.appendLine(`- ${e.name || '(unnamed)'} (${e.url || e.id})`);
+  for (const e of result.updated) outputChannel.appendLine(`~ ${e.name} (${e.url || e.id})`);
+  const summary = `Synced Dataverse environments: ${result.added.length} added, ${result.removed.length} removed, ${result.updated.length} updated.`;
+  outputChannel.appendLine(summary);
+  vscode.window.showInformationMessage(summary);
+  return result;
+}
+
 export async function deleteDataverseEnvironment(
   outputChannel: vscode.OutputChannel,
   spawnFn: SpawnFn = defaultSpawn as any
