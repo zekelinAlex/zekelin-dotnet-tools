@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { CleanupActionsProvider, GitActionsProvider, DevkitBuildActionsProvider, PlatformMetadataActionsProvider, ToolsDevkitTemplatesActionsProvider, DataverseActionsProvider, ToolsCliActionsProvider } from './treeViewProvider';
-import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, dataverseSolutionUnpack, dataverseSolutionImport, dataversePackageDeploy, addDataverseEnvironment, createDataverseEnvironment, deleteDataverseEnvironment, syncDataverseEnvironments, revealDataverseEnvironmentsConfig, migrateEnvironmentsToGlobalIfNeeded, openInNewWindow, sendToLocalNugetFeed, sortExplorerByModified, sortExplorerByDefault, updateExplorerSortContextKey, toolsCliReinstallLocal, toolsCliReinstallNuget, toolsCliRefreshVersions, toolsCliGenerateScript, resendLastCommit, combineCommits, undoLastCommit, gitWipe, platformMetadataInstallNugets, platformMetadataGenerateScript, toolsDevkitTemplatesInstallNugets, toolsDevkitTemplatesGenerateScript, DEVKIT_FOLDER_NAME, PLATFORM_METADATA_FOLDER_NAME, TOOLS_DEVKIT_TEMPLATES_FOLDER_NAME, TOOLS_CLI_FOLDER_NAME } from './commands';
+import { clearNugetCache, killDotnetProcesses, killVBCSCompiler, dotnetWipe, dotnetPublish, generateSnippetPrefixes, gitPush, gitDiscard, installTargetNugets, generateInstallScript, dataverseSolutionUnpack, dataverseSolutionImport, dataversePackageDeploy, addDataverseEnvironment, createDataverseEnvironment, deleteDataverseEnvironment, syncDataverseEnvironments, selectDataverseEnvironmentProfile, DataverseEnvironment, revealDataverseEnvironmentsConfig, migrateEnvironmentsToGlobalIfNeeded, openInNewWindow, sendToLocalNugetFeed, sortExplorerByModified, sortExplorerByDefault, updateExplorerSortContextKey, toolsCliReinstallLocal, toolsCliReinstallNuget, toolsCliRefreshVersions, toolsCliGenerateScript, resendLastCommit, combineCommits, undoLastCommit, gitWipe, platformMetadataInstallNugets, platformMetadataGenerateScript, toolsDevkitTemplatesInstallNugets, toolsDevkitTemplatesGenerateScript, DEVKIT_FOLDER_NAME, PLATFORM_METADATA_FOLDER_NAME, TOOLS_DEVKIT_TEMPLATES_FOLDER_NAME, TOOLS_CLI_FOLDER_NAME } from './commands';
 
 export function activate(context: vscode.ExtensionContext) {
   const outputChannel = vscode.window.createOutputChannel('Zekelin .NET Tools');
@@ -156,6 +156,12 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('dotnet-cleanup.syncDataverseEnvironments', () => {
       return syncDataverseEnvironments(outputChannel);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('dotnet-cleanup.selectDataverseEnvironmentProfile', (env: DataverseEnvironment) => {
+      return selectDataverseEnvironmentProfile(env, outputChannel);
     })
   );
 

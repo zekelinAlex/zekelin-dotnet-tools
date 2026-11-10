@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { dataverseEnvironmentsChanged, getDataverseEnvironments, getInstalledTxcVersions, toolsCliVersionsChanged } from './commands';
+import { dataverseEnvironmentKey, dataverseEnvironmentsChanged, getActiveDataverseEnvironmentKey, getDataverseEnvironments, getInstalledTxcVersions, toolsCliVersionsChanged } from './commands';
 
 export class CleanupActionItem extends vscode.TreeItem {
   constructor(label: string, commandId: string) {
@@ -176,12 +176,15 @@ export class DataverseActionsProvider implements vscode.TreeDataProvider<vscode.
     revealBtn.contextValue = 'dataverseRevealConfig';
     items.push(revealBtn);
 
+    const activeKey = getActiveDataverseEnvironmentKey();
     for (const env of getDataverseEnvironments()) {
       const label = env.name || '(unnamed)';
+      const isActive = dataverseEnvironmentKey(env) === activeKey;
       const it = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
-      it.description = env.url || env.id || '';
-      it.tooltip = `name: ${env.name}\nid: ${env.id}\nurl: ${env.url}`;
-      it.iconPath = new vscode.ThemeIcon('cloud');
+      it.description = (isActive ? 'active · ' : '') + (env.url || env.id || '');
+      it.tooltip = `name: ${env.name}\nid: ${env.id}\nurl: ${env.url}\n\nClick to make it the active txc profile`;
+      it.iconPath = new vscode.ThemeIcon(isActive ? 'pass-filled' : 'cloud');
+      it.command = { command: 'dotnet-cleanup.selectDataverseEnvironmentProfile', title: 'Select txc profile', arguments: [env] };
       it.contextValue = 'dataverseEnvironment';
       items.push(it);
     }

@@ -1230,6 +1230,39 @@ async function resolveTxcProfileForEnvironment(
   return created;
 }
 
+export function dataverseEnvironmentKey(env: DataverseEnvironment): string {
+  return (env.id || normalizeEnvironmentUrl(env.url) || env.name).toLowerCase();
+}
+
+export function getActiveDataverseEnvironmentKey(): string | undefined {
+  const value = readGlobalConfig().activeEnvironment;
+  return typeof value === 'string' && value ? value : undefined;
+}
+
+export async function selectDataverseEnvironmentProfile(
+  env: DataverseEnvironment,
+  outputChannel: vscode.OutputChannel,
+  spawnFn: SpawnFn = defaultSpawn as any
+): Promise<string | undefined> {
+  outputChannel.show(true);
+  const label = env.name || env.url || env.id;
+  const profile = await resolveTxcProfileForEnvironment(env, outputChannel, spawnFn);
+  if (!profile) return undefined;
+
+  const res = await runTxcCapture(['config', 'profile', 'select', profile], outputChannel, `Selecting txc profile "${profile}"`, spawnFn);
+  if (!res.ok) {
+    vscode.window.showErrorMessage(`Failed to select txc profile "${profile}". See output for details.`);
+    return undefined;
+  }
+
+  const cfg = readGlobalConfig();
+  cfg.activeEnvironment = dataverseEnvironmentKey(env);
+  writeGlobalConfig(cfg);
+  dataverseEnvironmentsChanged.fire();
+  vscode.window.showInformationMessage(`txc now targets "${label}" (profile "${profile}").`);
+  return profile;
+}
+
 export async function createDataverseEnvironment(
   outputChannel: vscode.OutputChannel,
   spawnFn: SpawnFn = defaultSpawn as any
