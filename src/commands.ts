@@ -2718,8 +2718,8 @@ export function updateExplorerSortContextKey(): void {
 export async function resendLastCommit(
   outputChannel: vscode.OutputChannel,
   runner: GitRunner = defaultGitRunner,
-  confirm: (msg: string, modal: boolean, ...actions: string[]) => Thenable<string | undefined> =
-    (msg, modal, ...actions) => vscode.window.showWarningMessage(msg, { modal }, ...actions)
+  askMessage: (options: vscode.InputBoxOptions) => Thenable<string | undefined> =
+    (options) => vscode.window.showInputBox(options)
 ): Promise<void> {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) {
@@ -2746,20 +2746,23 @@ export async function resendLastCommit(
   const lines = info.stdout.split(/\r?\n/);
   const [shaAndSubject = '', authorLine = '', dateLine = ''] = lines;
 
-  const choice = await confirm(
-    `Replace last commit with a new one (same message, fresh timestamp)?\n\n` +
-    `${shaAndSubject}\n${authorLine}\n${dateLine}\n\n` +
-    `Runs: git commit --amend --no-edit --date=now\n` +
-    `If you've already pushed this commit, you'll need git push --force afterwards.`,
-    true,
-    'Replace'
-  );
-  if (choice !== 'Replace') { return; }
+  const subject = shaAndSubject.replace(/^\S+\s*/, '');
+  const input = await askMessage({
+    title: `Resend last commit: ${shaAndSubject}`,
+    prompt: `${authorLine}, ${dateLine}. Leave empty to keep the message and only refresh the timestamp. Needs git push --force if already pushed.`,
+    placeHolder: subject,
+    ignoreFocusOut: true
+  });
+  if (input === undefined) { return; }
+  const newMessage = input.trim();
 
+  const args = newMessage
+    ? ['commit', '--amend', '-m', newMessage, '--date=now']
+    : ['commit', '--amend', '--no-edit', '--date=now'];
   outputChannel.show(true);
   outputChannel.appendLine(`Repo: ${repoRoot}`);
-  outputChannel.appendLine(`Running: git commit --amend --no-edit --date=now`);
-  const res = await runner(['commit', '--amend', '--no-edit', '--date=now'], repoRoot);
+  outputChannel.appendLine(`Running: git ${args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}`);
+  const res = await runner(args, repoRoot);
   if (res.stdout) { outputChannel.appendLine(res.stdout.trimEnd()); }
   if (res.stderr) { outputChannel.appendLine(res.stderr.trimEnd()); }
   if (res.error) {
@@ -2770,7 +2773,7 @@ export async function resendLastCommit(
   // Show new SHA so the user can see the commit was rewritten.
   const after = await runner(['log', '-1', '--format=%h %s'], repoRoot);
   if (after.stdout) { outputChannel.appendLine(`New commit: ${after.stdout.trim()}`); }
-  vscode.window.showInformationMessage('Last commit replaced — timestamp refreshed.');
+  vscode.window.showInformationMessage(newMessage ? 'Last commit replaced with the new message, timestamp refreshed.' : 'Last commit replaced, timestamp refreshed.');
 }
 
 // ─── Combine commits (squash into first) ───────────────────────────────────────

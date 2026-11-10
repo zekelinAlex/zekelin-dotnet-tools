@@ -15,7 +15,7 @@ These live under the default section and are available in any workspace:
 | **Clear NuGet Cache** | `dotnet nuget locals all --clear` — wipes every local NuGet cache. |
 | **Kill .NET Processes** | `taskkill /IM dotnet.exe /F` — ends every running `dotnet.exe`. |
 | **Kill VBCSCompiler** | `taskkill /IM VBCSCompiler.exe /F` — ends the stuck Roslyn compiler that often locks files in `bin/obj`. |
-| **Resend last commit** | `git commit --amend --no-edit --date=now` in the first workspace folder's repo — keeps the message, refreshes the timestamp. Modal confirmation shows the current SHA / subject / author / date before going through. Designed for local (not-yet-pushed) commits where you want the date to be "now"; if you've already pushed, you'll need `git push --force` afterwards. |
+| **Resend last commit** | Opens an input box at the top with the current SHA / subject / author / date. Leave it empty to run `git commit --amend --no-edit --date=now` (keeps the message, refreshes the timestamp), or type a new title to run `git commit --amend -m "<title>" --date=now`. Esc cancels. Designed for local (not-yet-pushed) commits where you want the date to be "now"; if you've already pushed, you'll need `git push --force` afterwards. |
 
 ### Activity Bar view — `tools-devkit-build` section
 
