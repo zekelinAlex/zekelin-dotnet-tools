@@ -109,6 +109,8 @@ Right-click any file or folder in the Explorer; the relevant entries only appear
 
 > How the "appears only when relevant" logic works: on startup the extension indexes the workspace for `.csproj`/`.sln`/`.slnx` files (and refreshes on create/delete via a file-system watcher), and subscribes to the built-in Git extension's repository state. It maintains three VS Code context keys — `dotnetCleanup.publishTargets`, `dotnetCleanup.wipeTargets`, and `dotnetGit.changedPaths` — each a map of the exact paths that qualify. The menu `when` clauses use `resourcePath in <key>`, so VS Code only shows the entry when the right-clicked path is a match. The Dataverse entries use a simpler `resourceExtname == .zip` check.
 
+> txc writes its logs as JSON lines whenever its output is piped (and `TXC_LOG_FORMAT` can't switch that off), so the extension renders them back as `[INFO]` / `[WARN]` / `[ERROR] <message>` in the output channel. While the command runs, stack traces are dropped and Dataverse error JSON embedded in a message is reduced to `code: message`. If the command fails, every shortened entry is printed again in full under `--- Full txc error details ---`: the stack trace plus the embedded JSON laid out as an indented tree (JSON stored inside string fields is expanded too, so no escaped quotes).
+
 ## Command palette
 
 Every action is also directly invocable via `Ctrl+Shift+P`:

@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { exec as defaultExec, execFile as defaultExecFile, spawn as defaultSpawn, SpawnOptions, ChildProcess } from 'child_process';
+import { createTxcOutputWriter } from './txcLog';
 
 type ExecFn = (cmd: string, callback: (error: Error | null, stdout: string, stderr: string) => void) => void;
 type SpawnFn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
@@ -1004,27 +1005,26 @@ async function runTxcCapture(
         const child = spawnFn('txc', quoted, { shell: true });
         let stdout = '';
         let stderr = '';
+        const writer = createTxcOutputWriter((line) => outputChannel.appendLine(line));
         const streamOut = (chunk: Buffer | string) => {
           const text = stripAnsi(chunk.toString());
           stdout += text;
-          for (const line of text.split(/\r?\n/)) {
-            if (line.length > 0) { outputChannel.appendLine(line); }
-          }
+          writer.stdout(text);
         };
         const streamErr = (chunk: Buffer | string) => {
           const text = stripAnsi(chunk.toString());
           stderr += text;
-          for (const line of text.split(/\r?\n/)) {
-            if (line.length > 0) { outputChannel.appendLine(line); }
-          }
+          writer.stderr(text);
         };
         child.stdout?.on('data', streamOut);
         child.stderr?.on('data', streamErr);
         child.on('error', (err) => {
+          writer.finish(true);
           outputChannel.appendLine(`Error: ${err.message}`);
           resolve({ ok: false, code: null, stdout, stderr: stderr + err.message });
         });
         child.on('close', (code) => {
+          writer.finish(code !== 0);
           resolve({ ok: code === 0, code, stdout, stderr });
         });
       })
@@ -1970,20 +1970,16 @@ export async function dataverseSolutionUnpack(
 
       const child = spawnFn('txc', quoted, { shell: true });
 
-      const stream = (chunk: Buffer | string) => {
-        const text = stripAnsi(chunk.toString());
-        for (const line of text.split(/\r?\n/)) {
-          if (line.length > 0) { outputChannel.appendLine(line); }
-        }
-      };
-
-      child.stdout?.on('data', stream);
-      child.stderr?.on('data', stream);
+      const writer = createTxcOutputWriter((line) => outputChannel.appendLine(line));
+      child.stdout?.on('data', (chunk: Buffer | string) => writer.stdout(stripAnsi(chunk.toString())));
+      child.stderr?.on('data', (chunk: Buffer | string) => writer.stderr(stripAnsi(chunk.toString())));
       child.on('error', (err) => {
+        writer.finish(true);
         outputChannel.appendLine(`Error: ${err.message}`);
         resolve({ ok: false, code: null });
       });
       child.on('close', (code) => {
+        writer.finish(code !== 0);
         resolve({ ok: code === 0, code });
       });
     });
